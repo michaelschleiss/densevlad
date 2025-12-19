@@ -95,3 +95,70 @@ pixi run -e dev python scripts/generate_cx_norm.py --verify
 
 If you generate a dump locally, the same normalized `CX` is also cached at:
 `~/Library/Caches/dvlad/torii15/247code/data/dnscnt_RDSIFT_K128.cx_norm.npy`.
+
+## Validation pipeline (end-to-end)
+
+This is the full validation workflow used to assert parity.
+
+1) **Fetch assets**
+- The code downloads `247code.zip` from the authors to
+  `~/Library/Caches/dvlad/torii15/247code.zip` on first use.
+- Tests and scripts use `Torii15Assets.default()` to pull files from the zip
+  into `~/Library/Caches/dvlad/torii15/247code/...`.
+
+2) **Build VLFeat + cyvlfeat**
+- Apple Silicon (pixi):
+```
+pixi install -e dev
+pixi run build-vlfeat
+pixi run install-cyvlfeat
+pixi run install-dvlad
+```
+- Ensure `libvl` is discoverable before running tests:
+```
+source .pixi/vlfeat_env.sh
+```
+
+3) **Generate MATLAB dumps**
+- DenseVLAD baseline (example_gsv):
+```
+/Applications/MATLAB_R2025b.app/bin/matlab -batch "run('scripts/matlab/dump_densevlad.m')"
+```
+- DenseVLAD with grid masking (example_grid):
+```
+/Applications/MATLAB_R2025b.app/bin/matlab -batch "run('scripts/matlab/dump_densevlad_grid.m')"
+```
+- Outputs:
+  - `~/Library/Caches/dvlad/torii15/matlab_dump/densevlad_dump.mat`
+  - `~/Library/Caches/dvlad/torii15/matlab_dump/densevlad_grid_dump.mat`
+
+4) **Stage-by-stage parity tests (strict, exact match)**
+- Covers preprocessing, imsmooth, DSIFT per scale, PHOW concat, RootSIFT,
+  kd-tree assignments, and grid mask.
+```
+source .pixi/vlfeat_env.sh
+python -m pytest tests/test_torii15_stage_parity.py -q
+```
+- Tests read MATLAB v7.3 dumps via `h5py` and use exact array equality.
+
+5) **Pre-PCA VLAD parity tests**
+- Compares Python DenseVLAD against the MATLAB dumps for:
+  - example_gsv `_012_000`
+  - example_grid `_012_000` (masked)
+```
+source .pixi/vlfeat_env.sh
+python -m pytest tests/test_torii15_pre_pca_vlad.py -q
+```
+
+6) **Whitening (golden vector)**
+- Uses the shipped PCA assets plus a pinned golden DenseVLAD vector
+  (base64 in `tests/test_torii15_whitening.py`) to avoid loading the ~1GB
+  PCA matrix in unit tests.
+```
+python -m pytest tests/test_torii15_whitening.py -q
+```
+
+7) **Shipped `.dict_grid.dnsvlad.mat` comparison (informational)**
+- We do *not* use the shipped `.mat` files for parity tests because they do not
+  match MATLAB outputs in this environment; see the “Shipped `.mat` mismatch
+  investigation” section for metrics and attempted fixes.
