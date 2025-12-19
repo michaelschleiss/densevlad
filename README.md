@@ -56,5 +56,10 @@ The repo ships a MATLAB-normalized centers asset at:
 This is the exact `CX` after MATLAB normalization, so kd-tree assignments
 match bit-for-bit without a local cache.
 
+To regenerate or verify the shipped asset from a local MATLAB dump:
+```
+pixi run -e dev python scripts/generate_cx_norm.py --verify
+```
+
 If you generate a dump locally, the same normalized `CX` is also cached at:
 `~/Library/Caches/dvlad/torii15/247code/data/dnscnt_RDSIFT_K128.cx_norm.npy`.
