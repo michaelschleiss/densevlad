@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib.resources as importlib_resources
 from pathlib import Path
 from typing import Optional
 import ctypes
@@ -21,6 +22,26 @@ def _l2normalize_cols(x: np.ndarray) -> np.ndarray:
     denom = np.sqrt(np.sum(x * x, axis=0, keepdims=True))
     denom[denom == 0] = 1.0
     return x / denom
+
+
+def _load_packaged_centers() -> np.ndarray | None:
+    try:
+        data_path = importlib_resources.files("dvlad.torii15").joinpath(
+            "data/dnscnt_RDSIFT_K128.cx_norm.npy"
+        )
+    except Exception:
+        return None
+    if not data_path.is_file():
+        return None
+    with importlib_resources.as_file(data_path) as path:
+        centers = np.load(path)
+    if centers.ndim != 2:
+        return None
+    if centers.shape[0] != 128 and centers.shape[1] == 128:
+        centers = centers.T
+    if centers.shape[1] != 128:
+        return None
+    return np.asarray(centers, dtype=np.float32)
 
 
 def _vocab_norm_cache_path(vocab_mat_path: Path) -> Path:
@@ -65,6 +86,9 @@ _DSIFT_TRANSPOSE_PERM = _dsift_transpose_perm(_DSIFT_GEOM[1], _DSIFT_GEOM[0], _D
 
 def load_torii15_vocab(vocab_mat_path: str | Path) -> Torii15Vocab:
     vocab_mat_path = Path(vocab_mat_path)
+    packaged = _load_packaged_centers()
+    if packaged is not None:
+        return Torii15Vocab(centers=packaged)
     norm_cache = _vocab_norm_cache_path(vocab_mat_path)
     if norm_cache.exists():
         centers = np.load(norm_cache)
