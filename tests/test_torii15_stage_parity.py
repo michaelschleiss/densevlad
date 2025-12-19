@@ -22,6 +22,18 @@ def _matlab_dump_path() -> Path:
     )
 
 
+def _matlab_grid_dump_path() -> Path:
+    return (
+        Path.home()
+        / "Library"
+        / "Caches"
+        / "dvlad"
+        / "torii15"
+        / "matlab_dump"
+        / "densevlad_grid_dump.mat"
+    )
+
+
 def _require_h5py():
     try:
         import h5py  # type: ignore[import-not-found]
@@ -69,6 +81,18 @@ def _require_matlab_dump():
         pytest.fail(
             f"MATLAB dump not found: {dump_path}. Run scripts/matlab/dump_densevlad.m "
             "to generate it.",
+            pytrace=False,
+        )
+    return h5py, dump_path
+
+
+def _require_matlab_grid_dump():
+    h5py = _require_h5py()
+    dump_path = _matlab_grid_dump_path()
+    if not dump_path.exists():
+        pytest.fail(
+            f"MATLAB grid dump not found: {dump_path}. Run "
+            "scripts/matlab/dump_densevlad_grid.m to generate it.",
             pytrace=False,
         )
     return h5py, dump_path
@@ -227,3 +251,38 @@ def test_rootsift_and_assignments_match_matlab_dump():
     np.testing.assert_array_equal(assigns, assigns_ref)
     nn = np.argmax(assigns, axis=1) + 1
     np.testing.assert_array_equal(nn, nn_ref)
+
+
+def test_grid_mask_matches_matlab_dump():
+    _require_cyvlfeat()
+    _require_vlfeat_imconv()
+    h5py, dump_path = _require_matlab_grid_dump()
+    assets = Torii15Assets.default()
+    image_path = assets.extract_member(
+        "247code/data/example_grid/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.jpg"
+    )
+    label_path = assets.extract_member(
+        "247code/data/example_grid/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.label.mat"
+    )
+    plane_path = assets.extract_member("247code/data/example_grid/planes.txt")
+
+    from dvlad.torii15.densevlad import _grid_mask_features_dense, _phow
+
+    img_single = image_mod.read_gray_im2single(image_path)
+    frames, descs = _phow(img_single)
+    descs = _rootsift(descs)
+    _, _, mask = _grid_mask_features_dense(
+        frames,
+        descs,
+        img_single.shape[:2],
+        Path(label_path),
+        Path(plane_path),
+        return_mask=True,
+    )
+
+    with h5py.File(dump_path, "r") as mat:
+        msk_ref = _load_matlab_array(mat, "msk")
+    msk_ref = np.asarray(msk_ref).reshape(-1).astype(bool)
+
+    assert mask.shape == msk_ref.shape
+    np.testing.assert_array_equal(mask, msk_ref)

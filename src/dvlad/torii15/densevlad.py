@@ -248,6 +248,11 @@ def _vl_vlad(
 
 
 def _phow_descs(im: np.ndarray) -> np.ndarray:
+    _, descs = _phow(im)
+    return descs
+
+
+def _phow(im: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     try:
         from cyvlfeat.sift import dsift
     except ModuleNotFoundError as e:
@@ -261,7 +266,8 @@ def _phow_descs(im: np.ndarray) -> np.ndarray:
     window_size = 1.5
     contrast_threshold = 0.005
     max_size = max(sizes)
-    descs_all = []
+    descs_all: list[np.ndarray] = []
+    frames_all: list[np.ndarray] = []
 
     for size in sizes:
         off = int(np.floor(1.0 + 1.5 * (max_size - size)))
@@ -283,9 +289,112 @@ def _phow_descs(im: np.ndarray) -> np.ndarray:
         descs = descs[:, _DSIFT_TRANSPOSE_PERM]
         contrast = frames[:, 2]
         descs[contrast < contrast_threshold] = 0
+        scale = np.full((frames.shape[0], 1), size, dtype=frames.dtype)
+        frames_all.append(np.concatenate([frames[:, :3], scale], axis=1))
         descs_all.append(descs)
 
-    return np.vstack(descs_all)
+    return np.vstack(frames_all), np.vstack(descs_all)
+
+
+def _matlab_round_positive(x: np.ndarray) -> np.ndarray:
+    return np.floor(x + 0.5).astype(np.int64)
+
+
+def _load_label_vector(label_path: Path) -> np.ndarray:
+    if label_path.suffix == ".mat":
+        from scipy.io import loadmat
+
+        mat = loadmat(label_path)
+        if "label" not in mat:
+            raise KeyError(f"Expected variable 'label' in {label_path}")
+        label = mat["label"]
+        return np.asarray(label, dtype=np.int64).reshape(-1)
+
+    raw = label_path.read_text()
+    data = np.fromstring(raw, sep=" ", dtype=np.int64)
+    if data.size < 3:
+        raise ValueError(f"Label file appears empty: {label_path}")
+    width, height = data[0], data[1]
+    label = data[2:]
+    expected = int(width * height)
+    if label.size != expected:
+        raise ValueError(
+            f"Expected {expected} label entries in {label_path}, got {label.size}"
+        )
+    return label
+
+
+def _load_label_image(label_path: Path, image_shape: tuple[int, int]) -> np.ndarray:
+    label_vec = _load_label_vector(label_path)
+    height, width = image_shape
+    expected = int(width * height)
+    if label_vec.size != expected:
+        raise ValueError(
+            f"Label size mismatch for {label_path}: expected {expected}, got {label_vec.size}"
+        )
+    return label_vec.reshape((width, height), order="F").T
+
+
+def _apply_plane_mask(label: np.ndarray, plane_path: Path) -> np.ndarray:
+    planes = np.loadtxt(plane_path, skiprows=1)
+    if planes.ndim == 1:
+        planes = planes.reshape(1, -1)
+    if planes.shape[1] < 4:
+        raise ValueError(f"Unexpected plane file shape: {planes.shape}")
+    normals = planes[:, 1:4].T
+    nz = np.array([0.0, 0.0, -1.0], dtype=np.float64)
+    dots = nz @ normals
+    denom = np.linalg.norm(normals, axis=0)
+    denom[denom == 0] = 1.0
+    cosang = np.clip(dots / denom, -1.0, 1.0)
+    ang = np.arccos(cosang)
+    pmask = np.where(ang < np.deg2rad(20.0))[0]
+    for idx in pmask:
+        label[label == (idx + 1)] = -1
+    return label
+
+
+def _disk_selem(radius: int) -> np.ndarray:
+    y, x = np.ogrid[-radius : radius + 1, -radius : radius + 1]
+    return (x * x + y * y) <= radius * radius
+
+
+def _grid_mask_features_dense(
+    frames: np.ndarray,
+    descs: np.ndarray,
+    image_shape: tuple[int, int],
+    label_path: Path,
+    plane_path: Optional[Path] = None,
+    *,
+    return_mask: bool = False,
+) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray]:
+    from scipy.ndimage import binary_dilation
+
+    if frames.size == 0:
+        return frames, descs
+
+    label = _load_label_image(label_path, image_shape)
+    if plane_path is not None:
+        label = _apply_plane_mask(label, plane_path)
+
+    bmsk = label < 2
+    scl = int(np.max(frames[:, 3]) * 2)
+    if scl < 1:
+        return frames, descs
+    ebmsk = binary_dilation(bmsk, structure=_disk_selem(scl))
+
+    x = _matlab_round_positive(frames[:, 0] + 1.0)
+    y = _matlab_round_positive(frames[:, 1] + 1.0)
+
+    height, width = image_shape
+    if np.any(x < 1) or np.any(x > width) or np.any(y < 1) or np.any(y > height):
+        raise ValueError("Frame coordinates outside image bounds during masking.")
+
+    mask = ebmsk[y - 1, x - 1] > 0
+    keep = ~mask
+    if return_mask:
+        return frames[keep], descs[keep], mask
+    return frames[keep], descs[keep]
 
 
 def compute_densevlad_pre_pca(
@@ -293,6 +402,8 @@ def compute_densevlad_pre_pca(
     vocab: Torii15Vocab,
     *,
     reuse_assignments: Optional[np.ndarray] = None,
+    label_path: Optional[str | Path] = None,
+    plane_path: Optional[str | Path] = None,
 ) -> np.ndarray:
     """
     Replicates Torii15 `at_image2densevlad.m` to produce the pre-PCA VLAD vector:
@@ -303,8 +414,19 @@ def compute_densevlad_pre_pca(
       - VLAD with intra-normalization (NormalizeComponents)
     """
     im = read_gray_im2single(image_path)
-    descs = _phow_descs(im)
-    descs = _rootsift(descs)
+    if label_path is not None:
+        frames, descs = _phow(im)
+        descs = _rootsift(descs)
+        frames, descs = _grid_mask_features_dense(
+            frames,
+            descs,
+            im.shape[:2],
+            Path(label_path),
+            Path(plane_path) if plane_path is not None else None,
+        )
+    else:
+        descs = _phow_descs(im)
+        descs = _rootsift(descs)
     assignments = reuse_assignments or _kdtree_assignments(descs, vocab.centers)
     vlad = _vl_vlad(descs, vocab.centers, assignments)
     return np.asarray(vlad, dtype=np.float32).reshape(-1)
