@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [{ name = "Michael" }]
 dependencies = [
   "cyvlfeat>=0.7.1",
-  "numpy>=1.24",
+  "numpy>=1.24,<2",
   "h5py>=3.10",
   "scipy>=1.10",
   "Pillow>=10.0",
@@ -40,9 +40,8 @@ platforms = ["osx-arm64"]
 
 [tool.pixi.dependencies]
 python = "3.11.*"
-cyvlfeat = "0.7.1.*"
-vlfeat = "0.9.21.*"
-numpy = ">=1.24,<3"
+cyvlfeat = ">=0.7.1"
+numpy = ">=1.24,<2"
 scipy = ">=1.10"
 h5py = ">=3.10"
 pillow = ">=10.0"
@@ -51,14 +50,12 @@ platformdirs = ">=4.0"
 [tool.pixi.feature.dev.dependencies]
 pytest = ">=7.4"
 
-[tool.pixi.pypi-dependencies]
-dvlad = { path = ".", editable = true }
-
 [tool.pixi.environments]
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
 
 [tool.pixi.tasks]
 build-vlfeat = "bash scripts/build_vlfeat_arm64.sh"
-install-cyvlfeat = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pip install cyvlfeat'"
+install-cyvlfeat = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pip install --no-deps --force-reinstall cyvlfeat'"
+install-dvlad = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pip install -e . --no-deps'"
 test-prepca = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pytest tests/test_torii15_pre_pca_vlad.py -q'"
