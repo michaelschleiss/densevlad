@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling>=1.24.2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dvlad"
+version = "0.0.1"
+description = "DenseVLAD replication (Torii et al. 2015 baseline)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Michael" }]
+dependencies = [
+  "cyvlfeat>=0.7.1",
+  "numpy>=1.24",
+  "h5py>=3.10",
+  "scipy>=1.10",
+  "Pillow>=10.0",
+  "platformdirs>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.4",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+markers = [
+  "integration: network/large-asset tests",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dvlad"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[tool.pixi.dependencies]
+python = "3.11.*"
+cyvlfeat = "0.7.1.*"
+vlfeat = "0.9.21.*"
+numpy = ">=1.24,<3"
+scipy = ">=1.10"
+h5py = ">=3.10"
+pillow = ">=10.0"
+platformdirs = ">=4.0"
+
+[tool.pixi.feature.dev.dependencies]
+pytest = ">=7.4"
+
+[tool.pixi.pypi-dependencies]
+dvlad = { path = ".", editable = true }
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+
+[tool.pixi.tasks]
+build-vlfeat = "bash scripts/build_vlfeat_arm64.sh"
+install-cyvlfeat = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pip install cyvlfeat'"
+test-prepca = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pytest tests/test_torii15_pre_pca_vlad.py -q'"
