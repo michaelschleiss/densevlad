@@ -4,10 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CACHE_BASE="${XDG_CACHE_HOME:-$HOME/Library/Caches}"
 VLFEAT_CACHE="${CACHE_BASE}/dvlad/vlfeat"
-VLFEAT_VER="0.9.20"
-VLFEAT_TAR="vlfeat-${VLFEAT_VER}.tar.gz"
-VLFEAT_URL="http://www.vlfeat.org/download/${VLFEAT_TAR}"
-VLFEAT_SRC="${VLFEAT_CACHE}/vlfeat-${VLFEAT_VER}"
+VLFEAT_GIT_URL="https://github.com/vlfeat/vlfeat.git"
+VLFEAT_SRC="${VLFEAT_CACHE}/vlfeat-0.9.20-git"
 SSE2NEON_URL="https://raw.githubusercontent.com/DLTcollab/sse2neon/master/sse2neon.h"
 SSE2NEON_CACHE="${VLFEAT_CACHE}/sse2neon"
 SSE2NEON_HEADER="${SSE2NEON_CACHE}/sse2neon.h"
@@ -15,46 +13,82 @@ SSE2NEON_INCLUDE="${VLFEAT_SRC}/sse2neon"
 
 mkdir -p "${VLFEAT_CACHE}"
 
-if [[ ! -f "${VLFEAT_CACHE}/${VLFEAT_TAR}" ]]; then
-  echo "Downloading VLFeat ${VLFEAT_VER}..."
-  curl -L "${VLFEAT_URL}" -o "${VLFEAT_CACHE}/${VLFEAT_TAR}"
-fi
-
 if [[ ! -d "${VLFEAT_SRC}" ]]; then
-  echo "Extracting VLFeat..."
-  tar -xzf "${VLFEAT_CACHE}/${VLFEAT_TAR}" -C "${VLFEAT_CACHE}"
+  echo "Cloning VLFeat..."
+  git clone "${VLFEAT_GIT_URL}" "${VLFEAT_SRC}"
 fi
 
 pushd "${VLFEAT_SRC}" >/dev/null
 
+echo "Fetching VLFeat tags..."
+git fetch --tags >/dev/null 2>&1 || true
+
+VLFEAT_TAG="$(git tag --sort=version:refname | tail -n 1)"
+if [[ -z "${VLFEAT_TAG}" ]]; then
+  echo "Error: could not determine latest VLFeat tag."
+  exit 1
+fi
+
+if ! git diff --quiet; then
+  echo "Local changes detected in VLFeat; keeping current checkout."
+else
+  echo "Checking out VLFeat tag ${VLFEAT_TAG}..."
+  git checkout "${VLFEAT_TAG}" >/dev/null 2>&1
+fi
+
 HOST_H="vl/host.h"
-HOST_C="vl/host.c"
 DLL_MAK="make/dll.mak"
 MAKEFILE="Makefile"
+GENERIC_C="vl/generic.c"
 
 if ! grep -Eq "__aarch64__|__arm64__|_M_ARM64" "${HOST_H}"; then
   echo "Patching VLFeat host.h for arm64..."
-  patch -p0 -N <<'PATCH'
---- vl/host.h
-+++ vl/host.h
-@@ -260,6 +260,10 @@
- #define VL_ARCH_IA64
- #endif
- /** @} */
-+
-+#if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
-+#define VL_ARCH_ARM64
-+#endif
-@@ -295,6 +299,7 @@
- #if defined(__LITTLE_ENDIAN__) || \
-     defined(VL_ARCH_IX86)      || \
-     defined(VL_ARCH_IA64)      || \
-     defined(VL_ARCH_X64)       || \
-+    defined(VL_ARCH_ARM64)     || \
-     defined(__DOXYGEN__)
- #define VL_ARCH_LITTLE_ENDIAN
- #endif
-PATCH
+  python - <<'PY'
+from pathlib import Path
+
+path = Path("vl/host.h")
+text = path.read_text()
+
+arm_block = (
+    "\n#if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)\n"
+    "#define VL_ARCH_ARM64\n"
+    "#endif\n"
+)
+
+if "VL_ARCH_ARM64" not in text:
+    marker = "/** @} */"
+    ia64 = "#define VL_ARCH_IA64\n#endif\n"
+    if ia64 in text and marker in text:
+        text = text.replace(ia64 + marker, ia64 + arm_block + marker, 1)
+    elif marker in text:
+        text = text.replace(marker, arm_block + marker, 1)
+
+if "VL_ARCH_ARM64" not in text:
+    raise SystemExit("Failed to inject VL_ARCH_ARM64 into vl/host.h")
+
+inserted = False
+needle = "    defined(VL_ARCH_X64)       || \\\n"
+if needle in text:
+    block = text[text.find(needle):text.find(needle) + 200]
+    if "VL_ARCH_ARM64" not in block:
+        text = text.replace(
+            needle,
+            needle + "    defined(VL_ARCH_ARM64)     || \\\n",
+            1,
+        )
+        inserted = True
+
+if not inserted:
+    le_marker = "    defined(__DOXYGEN__)\n"
+    if le_marker in text:
+        text = text.replace(
+            le_marker,
+            "    defined(VL_ARCH_ARM64)     || \\\n" + le_marker,
+            1,
+        )
+
+path.write_text(text)
+PY
 fi
 
 if ! grep -q "VLFEAT_SSE2_FLAG" "${DLL_MAK}"; then
@@ -97,39 +131,37 @@ if grep -q 'STD_CLFAGS = $(CFLAGS)' "${MAKEFILE}"; then
 PATCH
 fi
 
-if ! grep -q "non-x86" "${HOST_C}"; then
-  echo "Patching VLFeat host.c for non-x86 cpuid..."
-  patch -p0 -N <<'PATCH'
---- vl/host.c
-+++ vl/host.c
-@@ -395,6 +395,7 @@
- #include "host.h"
- #include "generic.h"
- #include <stdio.h>
-+#include <string.h>
-@@ -444,6 +445,7 @@
- void
- _vl_x86cpu_info_init (VlX86CpuInfo *self)
- {
-+#if defined(HAS_CPUID)
-   vl_int32 info [4] ;
-   int max_func = 0 ;
-   _vl_cpuid(info, 0) ;
-   max_func = info[0] ;
-@@ -465,6 +467,9 @@
-     self->hasSSE42 = info[2] & (1 << 20) ;
-     self->hasAVX   = info[2] & (1 << 28) ;
-   }
-+#else
-+  memset(self, 0, sizeof(*self));
-+  snprintf(self->vendor.string, sizeof(self->vendor.string), "non-x86");
-+#if defined(__aarch64__) || defined(__arm64__)
-+  self->hasSSE = 1;
-+  self->hasSSE2 = 1;
-+#endif
-+#endif
- }
-PATCH
+if ! grep -q "VL_ARCH_ARM64" "${GENERIC_C}"; then
+  echo "Patching VLFeat generic.c to enable SSE2 dispatch on arm64..."
+  python - <<'PY'
+from pathlib import Path
+
+path = Path("vl/generic.c")
+text = path.read_text()
+
+old = (
+    "#if defined(VL_ARCH_IX86) || defined(VL_ARCH_X64) || defined(VL_ARCH_IA64)\n"
+    "  return vl_get_state()->cpuInfo.hasSSE2 ;\n"
+    "#else\n"
+    "  return VL_FALSE ;\n"
+    "#endif\n"
+)
+new = (
+    "#if defined(VL_ARCH_IX86) || defined(VL_ARCH_X64) || defined(VL_ARCH_IA64)\n"
+    "  return vl_get_state()->cpuInfo.hasSSE2 ;\n"
+    "#elif defined(VL_ARCH_ARM64)\n"
+    "  return VL_TRUE ;\n"
+    "#else\n"
+    "  return VL_FALSE ;\n"
+    "#endif\n"
+)
+
+if old not in text:
+    raise SystemExit("Expected vl_cpu_has_sse2 block not found in vl/generic.c")
+
+text = text.replace(old, new, 1)
+path.write_text(text)
+PY
 fi
 
 mkdir -p "${SSE2NEON_CACHE}"
@@ -155,6 +187,11 @@ make -B -C "${VLFEAT_SRC}" ARCH=maci64 MEX= MKOCTFILE= \
   VLFEAT_SSE2_FLAG= \
   DISABLE_AVX=yes DISABLE_OPENMP=yes dll
 
+LIBVL_PATH="${VLFEAT_SRC}/bin/maci64/libvl.dylib"
+if [[ -f "${LIBVL_PATH}" ]]; then
+  install_name_tool -id "@rpath/libvl.dylib" "${LIBVL_PATH}"
+fi
+
 popd >/dev/null
 
 ENV_DIR="${ROOT_DIR}/.pixi"
@@ -163,18 +200,19 @@ mkdir -p "${ENV_DIR}"
 cat > "${ENV_FILE}" <<EOF
 export VLFEAT_SRC="${VLFEAT_SRC}"
 export CFLAGS="-I${SSE2NEON_INCLUDE} -I${VLFEAT_SRC} -D__SSE2__ -D__SSE__"
-export LDFLAGS="-L${VLFEAT_SRC}/bin/maci64"
+export LDFLAGS="-L${VLFEAT_SRC}/bin/maci64 -Wl,-rpath,${VLFEAT_SRC}/bin/maci64"
 export DYLD_LIBRARY_PATH="${VLFEAT_SRC}/bin/maci64:\${DYLD_LIBRARY_PATH:-}"
 export PIP_NO_BUILD_ISOLATION=1
 EOF
 
 echo ""
 echo "VLFeat built at: ${VLFEAT_SRC}"
+echo "VLFeat tag: ${VLFEAT_TAG}"
 echo "libvl.dylib: ${VLFEAT_SRC}/bin/maci64/libvl.dylib"
 echo "Env file: ${ENV_FILE}"
 echo ""
 echo "To install cyvlfeat:"
 echo "  export CFLAGS=\"-I${SSE2NEON_INCLUDE} -I${VLFEAT_SRC} -D__SSE2__ -D__SSE__\""
-echo "  export LDFLAGS=\"-L${VLFEAT_SRC}/bin/maci64\""
+echo "  export LDFLAGS=\"-L${VLFEAT_SRC}/bin/maci64 -Wl,-rpath,${VLFEAT_SRC}/bin/maci64\""
 echo "  export DYLD_LIBRARY_PATH=\"${VLFEAT_SRC}/bin/maci64:\${DYLD_LIBRARY_PATH:-}\""
 echo "  pip install --no-build-isolation cyvlfeat"

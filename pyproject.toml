@@ -46,8 +46,6 @@ scipy = ">=1.10"
 h5py = ">=3.10"
 pillow = ">=10.0"
 platformdirs = ">=4.0"
-
-[tool.pixi.feature.dev.dependencies]
 pytest = ">=7.4"
 
 [tool.pixi.environments]
@@ -56,6 +54,6 @@ dev = { features = ["dev"], solve-group = "default" }
 
 [tool.pixi.tasks]
 build-vlfeat = "bash scripts/build_vlfeat_arm64.sh"
-install-cyvlfeat = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pip install --no-deps --force-reinstall cyvlfeat'"
+install-cyvlfeat = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pip install --no-deps --force-reinstall --no-cache-dir --no-build-isolation --no-binary=:all: cyvlfeat && python scripts/fix_cyvlfeat_rpath.py'"
 install-dvlad = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pip install -e . --no-deps'"
 test-prepca = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pytest tests/test_torii15_pre_pca_vlad.py -q'"
