@@ -5,6 +5,8 @@ import importlib.resources as importlib_resources
 from pathlib import Path
 from typing import Optional
 import ctypes
+import atexit
+import os
 
 import numpy as np
 
@@ -133,19 +135,26 @@ def _rootsift(descs: np.ndarray) -> np.ndarray:
 
 
 def _hard_assignments(descs: np.ndarray, centers: np.ndarray, *, chunk_size: int = 512) -> np.ndarray:
+    idx = _hard_assignments_idx(descs, centers, chunk_size=chunk_size)
+    assigns = np.zeros((idx.shape[0], centers.shape[0]), dtype=np.float32)
+    assigns[np.arange(idx.shape[0]), idx] = 1.0
+    return assigns
+
+
+def _hard_assignments_idx(
+    descs: np.ndarray, centers: np.ndarray, *, chunk_size: int = 512
+) -> np.ndarray:
     # Exact nearest neighbors by brute-force L2 distance (deterministic).
     # Use direct squared-distance accumulation to better match VLFeat's numeric path.
-    n, d = descs.shape
-    k = centers.shape[0]
-    assigns = np.zeros((n, k), dtype=np.float32)
+    n = descs.shape[0]
+    idx = np.empty(n, dtype=np.int64)
     for start in range(0, n, chunk_size):
         end = min(start + chunk_size, n)
         block = descs[start:end]
         diff = block[:, None, :] - centers[None, :, :]
         d2 = np.sum(diff * diff, axis=2)
-        nn = np.argmin(d2, axis=1)
-        assigns[np.arange(start, end), nn] = 1.0
-    return assigns
+        idx[start:end] = np.argmin(d2, axis=1)
+    return idx
 
 
 _VL_TYPE_FLOAT = 1
@@ -187,17 +196,84 @@ if _image._LIBVL is not None:
     _image._LIBVL.vl_kdforest_query_with_array.restype = ctypes.c_size_t
     _image._LIBVL.vl_kdforest_delete.argtypes = [ctypes.c_void_p]
     _image._LIBVL.vl_kdforest_delete.restype = None
+    _image._LIBVL.vl_kmeans_new.argtypes = [ctypes.c_int, ctypes.c_int]
+    _image._LIBVL.vl_kmeans_new.restype = ctypes.c_void_p
+    _image._LIBVL.vl_kmeans_delete.argtypes = [ctypes.c_void_p]
+    _image._LIBVL.vl_kmeans_delete.restype = None
+    _image._LIBVL.vl_kmeans_set_centers.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_size_t,
+    ]
+    _image._LIBVL.vl_kmeans_set_centers.restype = None
+    _image._LIBVL.vl_kmeans_quantize.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_uint32),
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+    ]
+    _image._LIBVL.vl_kmeans_quantize.restype = None
+
+_KD_FOREST = None
+_KD_FOREST_CENTERS_REF: np.ndarray | None = None
+_KD_FOREST_CENTERS_BUF: np.ndarray | None = None
+_KMEANS = None
+_KMEANS_CENTERS_REF: np.ndarray | None = None
+_KMEANS_CENTERS_BUF: np.ndarray | None = None
+_MATMUL_CENTERS_REF: np.ndarray | None = None
+_MATMUL_CENTERS_BUF: np.ndarray | None = None
+_MATMUL_CENTERS_NORM: np.ndarray | None = None
+_MATMUL_ZERO_IDX: int | None = None
 
 
-def _kdtree_assignments(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
+def _release_kdforest() -> None:
+    global _KD_FOREST, _KD_FOREST_CENTERS_REF, _KD_FOREST_CENTERS_BUF
     if _image._LIBVL is None:
-        return _hard_assignments(descs, centers)
+        return
+    if _KD_FOREST is not None:
+        _image._LIBVL.vl_kdforest_delete(_KD_FOREST)
+    _KD_FOREST = None
+    _KD_FOREST_CENTERS_REF = None
+    _KD_FOREST_CENTERS_BUF = None
 
-    descs_f = np.ascontiguousarray(descs, dtype=np.float32)
+
+def _release_kmeans() -> None:
+    global _KMEANS, _KMEANS_CENTERS_REF, _KMEANS_CENTERS_BUF
+    if _image._LIBVL is None:
+        return
+    if _KMEANS is not None:
+        _image._LIBVL.vl_kmeans_delete(_KMEANS)
+    _KMEANS = None
+    _KMEANS_CENTERS_REF = None
+    _KMEANS_CENTERS_BUF = None
+
+
+def _release_matmul_cache() -> None:
+    global _MATMUL_CENTERS_REF, _MATMUL_CENTERS_BUF, _MATMUL_CENTERS_NORM
+    global _MATMUL_ZERO_IDX
+    _MATMUL_CENTERS_REF = None
+    _MATMUL_CENTERS_BUF = None
+    _MATMUL_CENTERS_NORM = None
+    _MATMUL_ZERO_IDX = None
+
+
+atexit.register(_release_kdforest)
+atexit.register(_release_kmeans)
+atexit.register(_release_matmul_cache)
+
+
+def _get_kdforest(centers: np.ndarray) -> tuple[ctypes.c_void_p, np.ndarray]:
+    global _KD_FOREST, _KD_FOREST_CENTERS_REF, _KD_FOREST_CENTERS_BUF
+    if _image._LIBVL is None:
+        raise RuntimeError("VLFeat libvl is required for kd-tree assignments.")
+
+    if _KD_FOREST is not None and _KD_FOREST_CENTERS_REF is centers:
+        return _KD_FOREST, _KD_FOREST_CENTERS_BUF  # type: ignore[return-value]
+
+    _release_kdforest()
     centers_f = np.ascontiguousarray(centers, dtype=np.float32)
-    num_queries = descs_f.shape[0]
-    num_centers = centers_f.shape[0]
-
     forest = _image._LIBVL.vl_kdforest_new(
         _VL_TYPE_FLOAT,
         centers_f.shape[1],
@@ -207,10 +283,90 @@ def _kdtree_assignments(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
     _image._LIBVL.vl_kdforest_set_thresholding_method(forest, _VL_KDTREE_MEDIAN)
     _image._LIBVL.vl_kdforest_build(
         forest,
-        num_centers,
+        centers_f.shape[0],
         centers_f.ctypes.data_as(ctypes.c_void_p),
     )
     _image._LIBVL.vl_kdforest_set_max_num_comparisons(forest, 0)
+
+    _KD_FOREST = forest
+    _KD_FOREST_CENTERS_REF = centers
+    _KD_FOREST_CENTERS_BUF = centers_f
+    return forest, centers_f
+
+
+def _get_kmeans(centers: np.ndarray) -> tuple[ctypes.c_void_p, np.ndarray]:
+    global _KMEANS, _KMEANS_CENTERS_REF, _KMEANS_CENTERS_BUF
+    if _image._LIBVL is None:
+        raise RuntimeError("VLFeat libvl is required for kmeans assignments.")
+
+    if _KMEANS is not None and _KMEANS_CENTERS_REF is centers:
+        return _KMEANS, _KMEANS_CENTERS_BUF  # type: ignore[return-value]
+
+    _release_kmeans()
+    centers_f = np.ascontiguousarray(centers, dtype=np.float32)
+    kmeans = _image._LIBVL.vl_kmeans_new(_VL_TYPE_FLOAT, _VL_DIST_L2)
+    _image._LIBVL.vl_kmeans_set_centers(
+        kmeans,
+        centers_f.ctypes.data_as(ctypes.c_void_p),
+        centers_f.shape[1],
+        centers_f.shape[0],
+    )
+    _KMEANS = kmeans
+    _KMEANS_CENTERS_REF = centers
+    _KMEANS_CENTERS_BUF = centers_f
+    return kmeans, centers_f
+
+
+def _zero_assignment_idx(centers_f: np.ndarray) -> int:
+    if _image._LIBVL is not None:
+        try:
+            zero_desc = np.zeros((1, centers_f.shape[1]), dtype=np.float32)
+            idx = _kdtree_assignments_idx(zero_desc, centers_f)
+            return int(idx[0])
+        except Exception:
+            pass
+    norms = np.sum(centers_f * centers_f, axis=1, dtype=np.float32)
+    return int(np.argmin(norms))
+
+
+def _get_matmul_centers(
+    centers: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    global _MATMUL_CENTERS_REF, _MATMUL_CENTERS_BUF, _MATMUL_CENTERS_NORM
+    global _MATMUL_ZERO_IDX
+
+    if _MATMUL_CENTERS_REF is centers:
+        return (
+            _MATMUL_CENTERS_BUF,  # type: ignore[return-value]
+            _MATMUL_CENTERS_NORM,  # type: ignore[return-value]
+            _MATMUL_ZERO_IDX,  # type: ignore[return-value]
+        )
+
+    centers_f = np.ascontiguousarray(centers, dtype=np.float32)
+    norms = np.sum(centers_f * centers_f, axis=1, dtype=np.float32)
+    zero_idx = _zero_assignment_idx(centers_f)
+
+    _MATMUL_CENTERS_REF = centers
+    _MATMUL_CENTERS_BUF = centers_f
+    _MATMUL_CENTERS_NORM = norms
+    _MATMUL_ZERO_IDX = zero_idx
+    return centers_f, norms, zero_idx
+
+
+def _kdtree_assignments(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
+    idx = _kdtree_assignments_idx(descs, centers)
+    assigns = np.zeros((idx.shape[0], centers.shape[0]), dtype=np.float32)
+    assigns[np.arange(idx.shape[0]), idx] = 1.0
+    return assigns
+
+
+def _kdtree_assignments_idx(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
+    if _image._LIBVL is None:
+        return _hard_assignments_idx(descs, centers)
+
+    descs_f = np.ascontiguousarray(descs, dtype=np.float32)
+    num_queries = descs_f.shape[0]
+    forest, _ = _get_kdforest(centers)
 
     indexes = np.empty((num_queries, 1), dtype=np.uint32)
     _image._LIBVL.vl_kdforest_query_with_array(
@@ -221,12 +377,62 @@ def _kdtree_assignments(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
         None,
         descs_f.ctypes.data_as(ctypes.c_void_p),
     )
-    _image._LIBVL.vl_kdforest_delete(forest)
 
-    assigns = np.zeros((num_queries, num_centers), dtype=np.float32)
-    idx = indexes.reshape(-1).astype(np.int64)
-    assigns[np.arange(num_queries), idx] = 1.0
-    return assigns
+    return indexes.reshape(-1).astype(np.int64)
+
+
+def _kmeans_assignments_idx(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
+    if _image._LIBVL is None:
+        return _hard_assignments_idx(descs, centers)
+
+    descs_f = np.ascontiguousarray(descs, dtype=np.float32)
+    kmeans, _ = _get_kmeans(centers)
+    indexes = np.empty(descs_f.shape[0], dtype=np.uint32)
+    _image._LIBVL.vl_kmeans_quantize(
+        kmeans,
+        indexes.ctypes.data_as(ctypes.POINTER(ctypes.c_uint32)),
+        None,
+        descs_f.ctypes.data_as(ctypes.c_void_p),
+        descs_f.shape[0],
+    )
+    return indexes.astype(np.int64, copy=False)
+
+
+def _matmul_assignments_idx(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
+    descs_f = np.ascontiguousarray(descs, dtype=np.float32)
+    if descs_f.size == 0:
+        return np.empty((0,), dtype=np.int64)
+
+    centers_f, c2, zero_idx = _get_matmul_centers(centers)
+    block = int(os.environ.get("DVLAD_MATMUL_BLOCK", "8192"))
+    block = max(block, 1)
+    idx = np.empty(descs_f.shape[0], dtype=np.int64)
+
+    for start in range(0, descs_f.shape[0], block):
+        end = min(start + block, descs_f.shape[0])
+        block_desc = descs_f[start:end]
+        x2 = np.sum(
+            block_desc * block_desc, axis=1, keepdims=True, dtype=np.float32
+        )
+        xc = block_desc @ centers_f.T
+        d2 = x2 + c2[None, :] - np.float32(2.0) * xc
+        idx_block = np.argmin(d2, axis=1)
+        zero_mask = x2.reshape(-1) == 0
+        if np.any(zero_mask):
+            idx_block[zero_mask] = zero_idx
+        idx[start:end] = idx_block
+    return idx
+
+
+def _assignments_idx(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
+    method = os.environ.get("DVLAD_ASSIGN_METHOD", "matmul").lower()
+    if method == "kdtree":
+        return _kdtree_assignments_idx(descs, centers)
+    if method == "hard":
+        return _hard_assignments_idx(descs, centers)
+    if method == "kmeans":
+        return _kmeans_assignments_idx(descs, centers)
+    return _matmul_assignments_idx(descs, centers)
 
 
 def _vl_vlad(
@@ -245,6 +451,35 @@ def _vl_vlad(
         assignments.astype(np.float32),
         normalize_components=True,
     )
+
+
+def _vl_vlad_hard(
+    descs: np.ndarray,
+    centers: np.ndarray,
+    idx: np.ndarray,
+    *,
+    normalize_components: bool = True,
+) -> np.ndarray:
+    descs_f = np.ascontiguousarray(descs, dtype=np.float32)
+    centers_f = np.ascontiguousarray(centers, dtype=np.float32)
+    idx = np.asarray(idx, dtype=np.int64).reshape(-1)
+    num_centers, dim = centers_f.shape
+
+    enc = np.zeros((num_centers, dim), dtype=np.float32)
+    if idx.size:
+        np.add.at(enc, idx, descs_f)
+        mass = np.bincount(idx, minlength=num_centers).astype(np.float32, copy=False)
+        enc -= mass[:, None] * centers_f
+
+    if normalize_components:
+        norms = np.sqrt(np.sum(enc * enc, axis=1, dtype=np.float32))
+        norms = np.maximum(norms, np.float32(1e-12))
+        enc = enc / norms[:, None]
+
+    norm = np.sqrt(np.sum(enc * enc, dtype=np.float32))
+    if norm > 0:
+        enc = enc / norm
+    return enc.reshape(-1)
 
 
 def _phow_descs(im: np.ndarray) -> np.ndarray:
@@ -404,6 +639,8 @@ def compute_densevlad_pre_pca(
     reuse_assignments: Optional[np.ndarray] = None,
     label_path: Optional[str | Path] = None,
     plane_path: Optional[str | Path] = None,
+    max_dim: Optional[int] = None,
+    apply_imdown: bool = True,
 ) -> np.ndarray:
     """
     Replicates Torii15 `at_image2densevlad.m` to produce the pre-PCA VLAD vector:
@@ -412,8 +649,13 @@ def compute_densevlad_pre_pca(
       - RootSIFT (L1 + sqrt)
       - hard assignment to vocab centers
       - VLAD with intra-normalization (NormalizeComponents)
+
+    Set `max_dim` to resize inputs before feature extraction (paper uses max 640).
+    Set `apply_imdown=False` to skip vl_imdown after resizing.
     """
-    im = read_gray_im2single(image_path)
+    im = read_gray_im2single(
+        image_path, max_dim=max_dim, apply_imdown=apply_imdown
+    )
     if label_path is not None:
         frames, descs = _phow(im)
         descs = _rootsift(descs)
@@ -427,6 +669,13 @@ def compute_densevlad_pre_pca(
     else:
         descs = _phow_descs(im)
         descs = _rootsift(descs)
-    assignments = reuse_assignments or _kdtree_assignments(descs, vocab.centers)
-    vlad = _vl_vlad(descs, vocab.centers, assignments)
+    if reuse_assignments is None:
+        idx = _assignments_idx(descs, vocab.centers)
+        vlad = _vl_vlad_hard(descs, vocab.centers, idx)
+    else:
+        assigns = np.asarray(reuse_assignments)
+        if assigns.ndim == 1:
+            vlad = _vl_vlad_hard(descs, vocab.centers, assigns)
+        else:
+            vlad = _vl_vlad(descs, vocab.centers, assigns)
     return np.asarray(vlad, dtype=np.float32).reshape(-1)

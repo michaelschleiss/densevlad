@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 from typing import Tuple
 import ctypes
 import ctypes.util
@@ -54,9 +55,29 @@ if _LIBVL is not None:
         ctypes.c_uint,
     ]
     _LIBVL.vl_imconvcol_vf.restype = None
+    _LIBVL.vl_set_simd_enabled.argtypes = [ctypes.c_int]
+    _LIBVL.vl_set_simd_enabled.restype = None
+    _LIBVL.vl_get_simd_enabled.argtypes = []
+    _LIBVL.vl_get_simd_enabled.restype = ctypes.c_int
     _VLFEAT_IMCONV_AVAILABLE = True
 else:
     _VLFEAT_IMCONV_AVAILABLE = False
+
+
+def set_simd_enabled(enabled: bool) -> None:
+    if _LIBVL is None:
+        return
+    _LIBVL.vl_set_simd_enabled(ctypes.c_int(1 if enabled else 0))
+
+
+def get_simd_enabled() -> bool:
+    if _LIBVL is None:
+        return False
+    return bool(_LIBVL.vl_get_simd_enabled())
+
+
+if _LIBVL is not None and os.environ.get("DVLAD_DISABLE_SIMD") == "1":
+    set_simd_enabled(False)
 
 
 def _rgb_to_gray_uint8(rgb: np.ndarray) -> np.ndarray:
@@ -77,7 +98,25 @@ def _vl_imdown_sample(gray: np.ndarray) -> np.ndarray:
     return gray[: max(h - 1, 0) : 2, : max(w - 1, 0) : 2]
 
 
-def read_gray_im2single(path: str | Path) -> np.ndarray:
+def _resize_max_dim_gray(gray: np.ndarray, max_dim: int) -> np.ndarray:
+    h, w = gray.shape[:2]
+    max_hw = max(h, w)
+    if max_dim <= 0 or max_hw <= max_dim:
+        return gray
+    scale = float(max_dim) / float(max_hw)
+    new_w = max(int(round(w * scale)), 1)
+    new_h = max(int(round(h * scale)), 1)
+    im = Image.fromarray(gray)
+    im = im.resize((new_w, new_h), resample=Image.BILINEAR)
+    return np.asarray(im, dtype=gray.dtype)
+
+
+def read_gray_im2single(
+    path: str | Path,
+    *,
+    max_dim: int | None = None,
+    apply_imdown: bool = True,
+) -> np.ndarray:
     """
     Loads an image, converts to grayscale (uint8), applies vl_imdown (sample),
     and converts to float32 in [0, 1], matching Torii15's preprocessing:
@@ -88,11 +127,19 @@ def read_gray_im2single(path: str | Path) -> np.ndarray:
         im = im.convert("RGB")
         rgb = np.asarray(im)
     gray = _rgb_to_gray_uint8(rgb)
-    gray = _vl_imdown_sample(gray)
+    if max_dim is not None:
+        gray = _resize_max_dim_gray(gray, max_dim)
+    if apply_imdown:
+        gray = _vl_imdown_sample(gray)
     return gray.astype(np.float32) / np.float32(255.0)
 
 
-def read_gray_uint8(path: str | Path) -> np.ndarray:
+def read_gray_uint8(
+    path: str | Path,
+    *,
+    max_dim: int | None = None,
+    apply_imdown: bool = True,
+) -> np.ndarray:
     """
     Loads an image and returns the grayscale uint8 after vl_imdown.
     Useful for debugging integer-space operations.
@@ -101,7 +148,11 @@ def read_gray_uint8(path: str | Path) -> np.ndarray:
         im = im.convert("RGB")
         rgb = np.asarray(im)
     gray = _rgb_to_gray_uint8(rgb)
-    return _vl_imdown_sample(gray)
+    if max_dim is not None:
+        gray = _resize_max_dim_gray(gray, max_dim)
+    if apply_imdown:
+        gray = _vl_imdown_sample(gray)
+    return gray
 
 
 def image_shape_after_imdown(path: str | Path) -> Tuple[int, int]:

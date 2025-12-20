@@ -18,8 +18,8 @@ pixi run install-dvlad
 
 If you are not using pixi, `cyvlfeat` requires the VLFeat C library (headers
 and `libvl`) to be installed on your system. On Apple Silicon, build VLFeat
-from source with SSE/AVX disabled and set include/library paths when
-installing `cyvlfeat`.
+from source with AVX disabled and the SSE2 paths enabled via `sse2neon`,
+then set include/library paths when installing `cyvlfeat`.
 
 Example (paths vary):
 ```
@@ -28,8 +28,11 @@ CFLAGS="-I/path/to/vlfeat" LDFLAGS="-L/path/to/vlfeat/bin/maci64" \
 ```
 
 For Apple Silicon without Rosetta, `scripts/build_vlfeat_arm64.sh` can
-download + patch VLFeat 0.9.20, build `libvl`, and print the exact
-environment variables needed to install `cyvlfeat`.
+download + patch VLFeat 0.9.20, build `libvl` with `sse2neon`, and print
+the exact environment variables needed to install `cyvlfeat`.
+
+To force exact scalar math (used by strict parity tests), set:
+`DVLAD_DISABLE_SIMD=1`.
 
 ## Parity status
 
@@ -44,6 +47,12 @@ Stage-by-stage parity against MATLAB dumps is exact for:
 
 Remaining parity checks:
 - PCA/whitening vector vs pinned golden vector
+
+## Example asset
+
+`example_gsv` is the example Google Street View image shipped with the
+authors' `247code.zip` and used by `test_densevlad.m`:
+`247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.jpg`.
 
 Note: the shipped `example_gsv` and `example_grid` `.dict_grid.dnsvlad.mat`
 files do not match the MATLAB code outputs in this environment
@@ -87,6 +96,29 @@ The repo ships a MATLAB-normalized centers asset at:
 `src/dvlad/torii15/data/dnscnt_RDSIFT_K128.cx_norm.npy`.
 This is the exact `CX` after MATLAB normalization, so kd-tree assignments
 match bit-for-bit without a local cache.
+
+Dense assignment defaults to `matmul` (vectorized exact L2 with deterministic
+zero-descriptor tie handling) and matches kd-tree outputs. To force the
+original kd-tree path, set `DVLAD_ASSIGN_METHOD=kdtree`. For an alternative
+fast path that may diverge, set `DVLAD_ASSIGN_METHOD=kmeans`. The matmul
+block size can be tuned with `DVLAD_MATMUL_BLOCK` (default 8192).
+
+## Performance notes
+
+Median timings on `example_gsv` (same image as MATLAB `test_densevlad.m`,
+single core, N=5):
+```
+stage         MATLAB    Python kdtree   Python matmul
+preprocess    0.009 s   0.014 s         0.014 s
+phow          0.334 s   0.467 s         0.455 s
+rootsift      0.068 s   0.081 s         0.082 s
+assignment    3.325 s   3.366 s         0.237 s
+vlad          0.133 s   0.240 s         0.235 s
+total         3.882 s   4.169 s         1.027 s
+```
+The kd-tree query dominates in MATLAB and Python. The matmul path replaces
+kd-tree assignments with exact L2 distances (BLAS), cutting assignment time
+by ~14x on this hardware.
 
 To regenerate or verify the shipped asset from a local MATLAB dump:
 ```
@@ -162,3 +194,72 @@ python -m pytest tests/test_torii15_whitening.py -q
 - We do *not* use the shipped `.mat` files for parity tests because they do not
   match MATLAB outputs in this environment; see the “Shipped `.mat` mismatch
   investigation” section for metrics and attempted fixes.
+
+## MATLAB baseline (Tokyo 24/7)
+
+To run the baseline in MATLAB (without Image Processing Toolbox), use:
+```
+/Applications/MATLAB_R2025b.app/bin/matlab -batch \
+  "addpath('scripts/matlab'); eval_tokyo247_densevlad('limit_db',10,'limit_q',5,'force',true)"
+```
+
+This uses `scripts/matlab/im2single.m` as a fallback so the code runs
+without the toolbox. Remove the limits for a full run (note: this is
+slow; DenseVLAD is ~30s/image on CPU in MATLAB).
+
+By default the MATLAB evaluator resizes images to max dimension 640 and
+does not apply `vl_imdown`. You can override these with:
+`'max_dim', 0` (disable resize) and `'use_imdown', true`.
+
+## Tokyo 24/7 baseline evaluation (Figure 6)
+
+This reproduces the DenseVLAD baseline recall@N on the 24/7-Tokyo dataset
+using the query subset from the paper (315 images).
+
+### Dataset downloads
+
+Database images (GSV) and queries are mirrored by the NetVLAD project:
+`https://data.ciirc.cvut.cz/public/projects/2015netVLAD/Tokyo247/`.
+
+1) **Database (75,984 images, ~40GB)**
+Download all `03814.tar` ... `03829.tar` from:
+`https://data.ciirc.cvut.cz/public/projects/2015netVLAD/Tokyo247/database_gsv_vga/`
+and extract into:
+`~/Library/Caches/dvlad/torii15/tokyo247/database_gsv_vga/03814/...`
+
+2) **Query subset (1.1GB, 315 images)**
+`https://data.ciirc.cvut.cz/public/projects/2015netVLAD/Tokyo247/queries/247query_subset_v2.zip`
+Extract to:
+`~/Library/Caches/dvlad/torii15/247query_subset_v2/247query_subset_v2/`
+
+3) **dbStruct metadata (tokyo247.mat)**
+Download the NetVLAD-compatible dbStruct file:
+```
+curl -L -o ~/Library/Caches/dvlad/torii15/tokyo247/tokyo247.mat \
+  https://raw.githubusercontent.com/devanshigarg01/pittsburghdata/main/tokyo247.mat
+```
+
+The dbStruct lists `.jpg` paths, but the database is shipped as `.png`;
+the evaluator maps `.jpg` -> `.png` automatically.
+
+### Run DenseVLAD baseline
+
+```
+source .pixi/vlfeat_env.sh
+python scripts/eval_tokyo247_densevlad.py
+```
+
+Descriptor caches are stored at:
+`~/Library/Caches/dvlad/torii15/tokyo247/densevlad_cache/`.
+
+The evaluator resizes images so the maximum dimension is 640 by default
+(`--max-dim 640`), matching the paper. Use `--use-imdown` to append the
+extra `vl_imdown` step from the released MATLAB code.
+
+Descriptor extraction supports parallel workers. By default the evaluator
+uses up to 4 processes; override with `--workers N` (and optionally
+`--worker-chunksize` for task batching).
+
+You can override dataset locations via:
+`DVLAD_TOKYO247_ROOT`, `DVLAD_TOKYO247_DB_DIR`,
+`DVLAD_TOKYO247_QUERY_DIR`, and `DVLAD_TOKYO247_DBSTRUCT`.

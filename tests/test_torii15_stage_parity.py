@@ -9,6 +9,8 @@ from dvlad.torii15 import Torii15Assets
 from dvlad.torii15 import image as image_mod
 from dvlad.torii15.densevlad import _DSIFT_TRANSPOSE_PERM, _kdtree_assignments, _rootsift
 
+image_mod.set_simd_enabled(False)
+
 
 def _matlab_dump_path() -> Path:
     return (

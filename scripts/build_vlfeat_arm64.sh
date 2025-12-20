@@ -8,6 +8,10 @@ VLFEAT_VER="0.9.20"
 VLFEAT_TAR="vlfeat-${VLFEAT_VER}.tar.gz"
 VLFEAT_URL="http://www.vlfeat.org/download/${VLFEAT_TAR}"
 VLFEAT_SRC="${VLFEAT_CACHE}/vlfeat-${VLFEAT_VER}"
+SSE2NEON_URL="https://raw.githubusercontent.com/DLTcollab/sse2neon/master/sse2neon.h"
+SSE2NEON_CACHE="${VLFEAT_CACHE}/sse2neon"
+SSE2NEON_HEADER="${SSE2NEON_CACHE}/sse2neon.h"
+SSE2NEON_INCLUDE="${VLFEAT_SRC}/sse2neon"
 
 mkdir -p "${VLFEAT_CACHE}"
 
@@ -25,6 +29,8 @@ pushd "${VLFEAT_SRC}" >/dev/null
 
 HOST_H="vl/host.h"
 HOST_C="vl/host.c"
+DLL_MAK="make/dll.mak"
+MAKEFILE="Makefile"
 
 if ! grep -Eq "__aarch64__|__arm64__|_M_ARM64" "${HOST_H}"; then
   echo "Patching VLFeat host.h for arm64..."
@@ -48,6 +54,46 @@ if ! grep -Eq "__aarch64__|__arm64__|_M_ARM64" "${HOST_H}"; then
      defined(__DOXYGEN__)
  #define VL_ARCH_LITTLE_ENDIAN
  #endif
+PATCH
+fi
+
+if ! grep -q "VLFEAT_SSE2_FLAG" "${DLL_MAK}"; then
+  echo "Patching VLFeat dll.mak to allow arm64 SSE2 flags..."
+  patch -p0 -N <<'PATCH'
+--- make/dll.mak
++++ make/dll.mak
+@@ -34,6 +34,8 @@
+ LINK_DLL_LDFLAGS =\
+ -L$(BINDIR) -lvl
+ 
++VLFEAT_SSE2_FLAG ?= -msse2
++
+ DLL_CFLAGS = \
+ $(STD_CFLAGS) \
+ -fvisibility=hidden -fPIC -DVL_BUILD_DLL \
+@@ -41,7 +43,7 @@
+ $(LINK_DLL_CFLAGS) \
+-$(call if-like,%_sse2,$*, $(if $(DISABLE_SSE2),,-msse2)) \
++$(call if-like,%_sse2,$*, $(if $(DISABLE_SSE2),,$(VLFEAT_SSE2_FLAG))) \
+ $(call if-like,%_avx,$*, $(if $(DISABLE_AVX),,-mavx)) \
+ $(if $(DISABLE_THREADS),,-pthread) \
+ $(if $(DISABLE_OPENMP),,-fopenmp)
+PATCH
+fi
+
+if grep -q 'STD_CLFAGS = $(CFLAGS)' "${MAKEFILE}"; then
+  echo "Patching VLFeat Makefile to honor CFLAGS..."
+  patch -p0 -N <<'PATCH'
+--- Makefile
++++ Makefile
+@@ -150,7 +150,7 @@
+ LIBTOOL ?= libtool
+ 
+-STD_CLFAGS = $(CFLAGS)
++STD_CFLAGS = $(CFLAGS)
+ STD_CFLAGS += -std=c99
+ STD_CFLAGS += -Wall -Wextra
+ STD_CFLAGS += -Wno-unused-function -Wno-long-long -Wno-variadic-macros
 PATCH
 fi
 
@@ -77,14 +123,37 @@ if ! grep -q "non-x86" "${HOST_C}"; then
 +#else
 +  memset(self, 0, sizeof(*self));
 +  snprintf(self->vendor.string, sizeof(self->vendor.string), "non-x86");
++#if defined(__aarch64__) || defined(__arm64__)
++  self->hasSSE = 1;
++  self->hasSSE2 = 1;
++#endif
 +#endif
  }
 PATCH
 fi
 
-echo "Building VLFeat (arm64-safe settings)..."
-make -C "${VLFEAT_SRC}" ARCH=maci64 MEX= MKOCTFILE= \
-  DISABLE_SSE2=yes DISABLE_AVX=yes DISABLE_OPENMP=yes dll
+mkdir -p "${SSE2NEON_CACHE}"
+if [[ ! -f "${SSE2NEON_HEADER}" ]]; then
+  echo "Downloading sse2neon..."
+  curl -L "${SSE2NEON_URL}" -o "${SSE2NEON_HEADER}"
+fi
+
+mkdir -p "${SSE2NEON_INCLUDE}"
+cp "${SSE2NEON_HEADER}" "${SSE2NEON_INCLUDE}/sse2neon.h"
+cat > "${SSE2NEON_INCLUDE}/emmintrin.h" <<'EOF'
+#ifndef SSE2NEON_EMMINTRIN_H
+#define SSE2NEON_EMMINTRIN_H
+#include "sse2neon.h"
+#endif
+EOF
+
+make -C "${VLFEAT_SRC}" clean >/dev/null 2>&1 || true
+
+echo "Building VLFeat (arm64 + sse2neon)..."
+make -B -C "${VLFEAT_SRC}" ARCH=maci64 MEX= MKOCTFILE= \
+  CFLAGS="-I${SSE2NEON_INCLUDE} -I${VLFEAT_SRC} -D__SSE2__ -D__SSE__" \
+  VLFEAT_SSE2_FLAG= \
+  DISABLE_AVX=yes DISABLE_OPENMP=yes dll
 
 popd >/dev/null
 
@@ -93,7 +162,7 @@ ENV_FILE="${ENV_DIR}/vlfeat_env.sh"
 mkdir -p "${ENV_DIR}"
 cat > "${ENV_FILE}" <<EOF
 export VLFEAT_SRC="${VLFEAT_SRC}"
-export CFLAGS="-I${VLFEAT_SRC}"
+export CFLAGS="-I${SSE2NEON_INCLUDE} -I${VLFEAT_SRC} -D__SSE2__ -D__SSE__"
 export LDFLAGS="-L${VLFEAT_SRC}/bin/maci64"
 export DYLD_LIBRARY_PATH="${VLFEAT_SRC}/bin/maci64:\${DYLD_LIBRARY_PATH:-}"
 export PIP_NO_BUILD_ISOLATION=1
@@ -105,7 +174,7 @@ echo "libvl.dylib: ${VLFEAT_SRC}/bin/maci64/libvl.dylib"
 echo "Env file: ${ENV_FILE}"
 echo ""
 echo "To install cyvlfeat:"
-echo "  export CFLAGS=\"-I${VLFEAT_SRC}\""
+echo "  export CFLAGS=\"-I${SSE2NEON_INCLUDE} -I${VLFEAT_SRC} -D__SSE2__ -D__SSE__\""
 echo "  export LDFLAGS=\"-L${VLFEAT_SRC}/bin/maci64\""
 echo "  export DYLD_LIBRARY_PATH=\"${VLFEAT_SRC}/bin/maci64:\${DYLD_LIBRARY_PATH:-}\""
 echo "  pip install --no-build-isolation cyvlfeat"

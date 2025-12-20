@@ -7,6 +7,8 @@ from pathlib import Path
 from dvlad.torii15 import Torii15Assets, compute_densevlad_pre_pca, load_torii15_vocab
 from dvlad.torii15 import image as image_mod
 
+image_mod.set_simd_enabled(False)
+
 
 def _require_h5py():
     try:
