@@ -13,6 +13,8 @@ opts = struct();
 opts.seed = 1337;
 opts.num_db = 5;
 opts.num_q = 5;
+opts.max_dim = 640;
+opts.use_imdown = false;
 opts.out_dir = '';
 opts = parse_opts(opts, varargin{:});
 
@@ -112,7 +114,10 @@ for i = 1:total
     if size(img, 3) > 1
         img = rgb2gray(img);
     end
-    img = vl_imdown(img);
+    img = resize_max_dim(img, opts.max_dim);
+    if opts.use_imdown
+        img = vl_imdown(img);
+    end
     img_single = single(img);
     if isinteger(img)
         img_single = img_single ./ single(intmax(class(img)));
@@ -127,9 +132,12 @@ for i = 1:total
     fprintf(1, '  %d/%d\n', i, total);
 end
 
+max_dim = opts.max_dim;
+use_imdown = opts.use_imdown;
 out_mat = fullfile(opts.out_dir, 'tokyo247_golden.mat');
 out_list = fullfile(opts.out_dir, 'tokyo247_golden_list.txt');
-save(out_mat, 'vlad_pre', 'vlad_4096', 'is_db', 'rel_paths', 'opts', '-v7.3');
+save(out_mat, 'vlad_pre', 'vlad_4096', 'is_db', 'rel_paths', ...
+    'opts', 'max_dim', 'use_imdown', '-v7.3');
 
 fid = fopen(out_list, 'w');
 for i = 1:total
@@ -157,5 +165,34 @@ for i = 1:2:numel(varargin)
         error('Unknown option: %s', name);
     end
     opts.(name) = value;
+end
+end
+
+function img = resize_max_dim(img, max_dim)
+if isempty(max_dim) || max_dim <= 0
+    return;
+end
+[h, w] = size(img);
+max_hw = max(h, w);
+if max_hw <= max_dim
+    return;
+end
+scale = double(max_dim) / double(max_hw);
+new_h = max(int32(round(h * scale)), 1);
+new_w = max(int32(round(w * scale)), 1);
+if exist('imresize', 'file') == 2
+    img = imresize(img, [new_h new_w], 'bilinear');
+    return;
+end
+[x, y] = meshgrid(1:w, 1:h);
+[xq, yq] = meshgrid(linspace(1, w, double(new_w)), linspace(1, h, double(new_h)));
+img_f = single(img);
+img_r = interp2(x, y, img_f, xq, yq, 'linear');
+if isinteger(img)
+    maxv = double(intmax(class(img)));
+    img_r = max(min(img_r, maxv), 0);
+    img = cast(round(img_r), class(img));
+else
+    img = cast(img_r, class(img));
 end
 end

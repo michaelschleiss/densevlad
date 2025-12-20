@@ -106,9 +106,122 @@ def _resize_max_dim_gray(gray: np.ndarray, max_dim: int) -> np.ndarray:
     scale = float(max_dim) / float(max_hw)
     new_w = max(int(round(w * scale)), 1)
     new_h = max(int(round(h * scale)), 1)
-    im = Image.fromarray(gray)
-    im = im.resize((new_w, new_h), resample=Image.BILINEAR)
-    return np.asarray(im, dtype=gray.dtype)
+    if new_w == w and new_h == h:
+        return gray
+
+    def _kernel_linear(x: np.ndarray) -> np.ndarray:
+        x = np.asarray(x, dtype=np.float64)
+        return np.maximum(1.0 - np.abs(x), 0.0)
+
+    def _contributions(in_len: int, out_len: int, scale: float):
+        kernel_width = 2.0
+        if scale < 1.0:
+            kernel_width = kernel_width / scale
+            kernel = lambda x: scale * _kernel_linear(scale * x)
+        else:
+            kernel = _kernel_linear
+
+        x = np.arange(1, out_len + 1, dtype=np.float64)
+        u = x / scale + 0.5 * (1.0 - 1.0 / scale)
+        left = np.floor(u - kernel_width / 2.0)
+        p = int(np.ceil(kernel_width)) + 2
+        indices = left[:, None] + np.arange(p, dtype=np.float64)[None, :] - 1.0
+        weights = kernel(u[:, None] - indices - 1.0)
+        # Sequential sum matches MATLAB's weight normalization bit-for-bit.
+        sums = np.zeros((weights.shape[0],), dtype=np.float64)
+        for k in range(weights.shape[1]):
+            sums += weights[:, k]
+        weights = weights / sums[:, None]
+
+        indices = indices.astype(np.int64)
+        aux = np.concatenate(
+            (np.arange(in_len), np.arange(in_len - 1, -1, -1))
+        ).astype(np.int64)
+        indices = aux[np.mod(indices, aux.size)]
+
+        keep = np.any(weights, axis=0)
+        weights = weights[:, keep]
+        indices = indices[:, keep]
+        return weights.astype(np.float64), indices.astype(np.int64)
+
+    def _resize_along_axis_float(
+        data: np.ndarray, weights: np.ndarray, indices: np.ndarray, axis: int
+    ) -> np.ndarray:
+        out_len, _ = weights.shape
+        if axis == 1:
+            out = np.zeros((data.shape[0], out_len), dtype=np.float64)
+            for i in range(out_len):
+                cols = data[:, indices[i]]
+                out[:, i] = np.sum(cols * weights[i], axis=1)
+            return out
+        out = np.zeros((out_len, data.shape[1]), dtype=np.float64)
+        for i in range(out_len):
+            rows = data[indices[i], :]
+            out[i, :] = np.sum(rows * weights[i][:, None], axis=0)
+        return out
+
+    def _round_to_dtype(arr: np.ndarray, dtype: np.dtype, maxv: float) -> np.ndarray:
+        arr = np.floor(arr + 0.5)
+        arr = np.clip(arr, 0.0, maxv)
+        return arr.astype(dtype)
+
+    def _resize_along_axis_uint(
+        data: np.ndarray,
+        weights: np.ndarray,
+        indices: np.ndarray,
+        axis: int,
+        dtype: np.dtype,
+        maxv: float,
+    ) -> np.ndarray:
+        out_len, _ = weights.shape
+        if axis == 1:
+            out = np.empty((data.shape[0], out_len), dtype=dtype)
+            for i in range(out_len):
+                idx = indices[i]
+                wrow = weights[i]
+                acc = wrow[0] * data[:, idx[0]]
+                for k in range(1, wrow.size):
+                    acc = acc + wrow[k] * data[:, idx[k]]
+                out[:, i] = _round_to_dtype(acc, dtype, maxv)
+            return out
+        out = np.empty((out_len, data.shape[1]), dtype=dtype)
+        for i in range(out_len):
+            idx = indices[i]
+            wrow = weights[i]
+            acc = wrow[0] * data[idx[0], :]
+            for k in range(1, wrow.size):
+                acc = acc + wrow[k] * data[idx[k], :]
+            out[i, :] = _round_to_dtype(acc, dtype, maxv)
+        return out
+
+    scale_h = new_h / float(h)
+    scale_w = new_w / float(w)
+    h_weights, h_indices = _contributions(h, new_h, scale_h)
+    w_weights, w_indices = _contributions(w, new_w, scale_w)
+    order = np.argsort(np.array([scale_h, scale_w], dtype=np.float64))
+
+    if np.issubdtype(gray.dtype, np.integer):
+        dtype = gray.dtype
+        maxv = float(np.iinfo(dtype).max)
+        data = gray
+        for axis in order:
+            if axis == 0:
+                data = _resize_along_axis_uint(
+                    data, h_weights, h_indices, axis=0, dtype=dtype, maxv=maxv
+                )
+            else:
+                data = _resize_along_axis_uint(
+                    data, w_weights, w_indices, axis=1, dtype=dtype, maxv=maxv
+                )
+        return data
+
+    data = gray.astype(np.float64)
+    for axis in order:
+        if axis == 0:
+            data = _resize_along_axis_float(data, h_weights, h_indices, axis=0)
+        else:
+            data = _resize_along_axis_float(data, w_weights, w_indices, axis=1)
+    return data.astype(gray.dtype)
 
 
 def read_gray_im2single(

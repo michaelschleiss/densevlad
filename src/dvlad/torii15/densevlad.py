@@ -403,19 +403,22 @@ def _matmul_assignments_idx(descs: np.ndarray, centers: np.ndarray) -> np.ndarra
     if descs_f.size == 0:
         return np.empty((0,), dtype=np.int64)
 
-    centers_f, c2, zero_idx = _get_matmul_centers(centers)
+    centers_f, c2_f32, zero_idx = _get_matmul_centers(centers)
     block = int(os.environ.get("DVLAD_MATMUL_BLOCK", "8192"))
     block = max(block, 1)
     idx = np.empty(descs_f.shape[0], dtype=np.int64)
 
+    # Use float64 for distance computation to avoid precision issues in argmin.
+    # Distances within ~1e-7 of each other can flip ordering in float32.
+    centers_f64 = centers_f.astype(np.float64)
+    c2 = np.sum(centers_f64 * centers_f64, axis=1)
+
     for start in range(0, descs_f.shape[0], block):
         end = min(start + block, descs_f.shape[0])
-        block_desc = descs_f[start:end]
-        x2 = np.sum(
-            block_desc * block_desc, axis=1, keepdims=True, dtype=np.float32
-        )
-        xc = block_desc @ centers_f.T
-        d2 = x2 + c2[None, :] - np.float32(2.0) * xc
+        block_desc = descs_f[start:end].astype(np.float64)
+        x2 = np.sum(block_desc * block_desc, axis=1, keepdims=True)
+        xc = block_desc @ centers_f64.T
+        d2 = x2 + c2[None, :] - 2.0 * xc
         idx_block = np.argmin(d2, axis=1)
         zero_mask = x2.reshape(-1) == 0
         if np.any(zero_mask):

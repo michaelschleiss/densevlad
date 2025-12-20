@@ -97,8 +97,9 @@ Tokyo247 golden references use:
 - `~/Library/Caches/dvlad/torii15/matlab_dump/tokyo247_golden.mat`
 - `~/Library/Caches/dvlad/torii15/matlab_dump/tokyo247_golden_list.txt`
 
-The golden set samples 5 DB + 5 query images (seed 1337) and stores both
-pre-PCA VLAD (16384-D) and PCA-whitened VLAD (4096-D) for parity tests.
+The golden set samples 5 DB + 5 query images (seed 1337), resizes to max 640
+pixels (paper setting), and stores both pre-PCA VLAD (16384-D) and
+PCA-whitened VLAD (4096-D) for parity tests.
 
 The repo ships a MATLAB-normalized centers asset at:
 `src/dvlad/torii15/data/dnscnt_RDSIFT_K128.cx_norm.npy`.
@@ -106,10 +107,11 @@ This is the exact `CX` after MATLAB normalization, so kd-tree assignments
 match bit-for-bit without a local cache.
 
 Dense assignment defaults to `matmul` (vectorized exact L2 with deterministic
-zero-descriptor tie handling) and matches kd-tree outputs. To force the
-original kd-tree path, set `DVLAD_ASSIGN_METHOD=kdtree`. For an alternative
-fast path that may diverge, set `DVLAD_ASSIGN_METHOD=kmeans`. The matmul
-block size can be tuned with `DVLAD_MATMUL_BLOCK` (default 8192).
+zero-descriptor tie handling) and is usually identical to kd-tree, but rare
+tie cases can differ. For strict parity tests and paper matching, use
+`DVLAD_ASSIGN_METHOD=kdtree`. For an alternative fast path that may diverge,
+set `DVLAD_ASSIGN_METHOD=kmeans`. The matmul block size can be tuned with
+`DVLAD_MATMUL_BLOCK` (default 8192).
 
 ## Performance notes
 

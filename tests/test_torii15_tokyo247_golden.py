@@ -61,6 +61,15 @@ def _load_matlab_matrix(mat, name: str, *, dim: int) -> np.ndarray:
     return np.asarray(arr, dtype=np.float32)
 
 
+def _load_matlab_scalar(mat, name: str) -> float:
+    if name not in mat:
+        raise KeyError(name)
+    arr = np.array(mat[name])
+    if arr.size != 1:
+        raise ValueError(f"Expected scalar for {name}, got shape {arr.shape}")
+    return float(arr.reshape(-1)[0])
+
+
 def _load_golden_list(list_path: Path, paths: Tokyo247Paths) -> list[Path]:
     lines = [line.strip() for line in list_path.read_text().splitlines() if line.strip()]
     image_paths: list[Path] = []
@@ -87,13 +96,31 @@ def test_tokyo247_golden_vectors_match_matlab():
     vocab = load_torii15_vocab(assets.vocab_mat_path())
     pca = load_torii15_pca_whitening(assets.pca_mat_path(), dim=4096)
 
+    with h5py.File(mat_path, "r") as mat:
+        pre_ref = _load_matlab_matrix(mat, "vlad_pre", dim=16384)
+        v_ref = _load_matlab_matrix(mat, "vlad_4096", dim=4096)
+        try:
+            max_dim = int(_load_matlab_scalar(mat, "max_dim"))
+            use_imdown = bool(_load_matlab_scalar(mat, "use_imdown"))
+        except KeyError:
+            pytest.fail(
+                "tokyo247_golden.mat missing max_dim/use_imdown. "
+                "Regenerate with scripts/matlab/dump_tokyo247_golden.m.",
+                pytrace=False,
+            )
+
     orig_assign = os.environ.get("DVLAD_ASSIGN_METHOD")
-    os.environ["DVLAD_ASSIGN_METHOD"] = "matmul"
+    os.environ["DVLAD_ASSIGN_METHOD"] = "kdtree"
     try:
         pre_list = []
         v_list = []
         for img_path in image_paths:
-            v_pre = compute_densevlad_pre_pca(img_path, vocab)
+            v_pre = compute_densevlad_pre_pca(
+                img_path,
+                vocab,
+                max_dim=max_dim,
+                apply_imdown=use_imdown,
+            )
             v_pre = np.asarray(v_pre, dtype=np.float32).reshape(-1)
             pre_list.append(v_pre)
             v_list.append(apply_pca_whitening(v_pre, pca))
@@ -105,11 +132,14 @@ def test_tokyo247_golden_vectors_match_matlab():
         else:
             os.environ["DVLAD_ASSIGN_METHOD"] = orig_assign
 
-    with h5py.File(mat_path, "r") as mat:
-        pre_ref = _load_matlab_matrix(mat, "vlad_pre", dim=16384)
-        v_ref = _load_matlab_matrix(mat, "vlad_4096", dim=4096)
-
     assert pre.shape == pre_ref.shape
     assert v.shape == v_ref.shape
-    np.testing.assert_allclose(pre, pre_ref, rtol=0, atol=1e-4)
-    np.testing.assert_allclose(v, v_ref, rtol=0, atol=1e-4)
+    # Element-wise tolerance: 1e-6 is appropriate for float32 after ~20 operations
+    np.testing.assert_allclose(pre, pre_ref, rtol=0, atol=1e-6)
+    np.testing.assert_allclose(v, v_ref, rtol=0, atol=1e-6)
+    # Vector-level sanity check: cosine similarity for each row should be nearly perfect
+    for i in range(pre.shape[0]):
+        cos_pre = np.dot(pre[i], pre_ref[i]) / (np.linalg.norm(pre[i]) * np.linalg.norm(pre_ref[i]))
+        cos_v = np.dot(v[i], v_ref[i]) / (np.linalg.norm(v[i]) * np.linalg.norm(v_ref[i]))
+        assert cos_pre > 0.999999, f"Pre-PCA cosine similarity {cos_pre} too low for image {i}"
+        assert cos_v > 0.999999, f"Whitened cosine similarity {cos_v} too low for image {i}"
