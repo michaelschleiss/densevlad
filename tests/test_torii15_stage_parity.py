@@ -288,3 +288,38 @@ def test_grid_mask_matches_matlab_dump():
 
     assert mask.shape == msk_ref.shape
     np.testing.assert_array_equal(mask, msk_ref)
+
+
+def test_matmul_kdtree_assignment_equivalence():
+    """Verify that matmul and kdtree assignment methods produce identical results.
+
+    This is critical because matmul is the default (faster) method, but kdtree
+    is what MATLAB uses. They must be equivalent for parity guarantees to hold.
+    """
+    _require_cyvlfeat()
+    _require_libvl()
+    assets = Torii15Assets.default()
+    image_path = assets.extract_member(
+        "247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.jpg"
+    )
+
+    from dvlad.torii15 import load_torii15_vocab
+    from dvlad.torii15.densevlad import (
+        _phow_descs,
+        _kdtree_assignments_idx,
+        _matmul_assignments_idx,
+    )
+
+    img_single = image_mod.read_gray_im2single(image_path)
+    descs = _phow_descs(img_single)
+    desc_rs = _rootsift(descs)
+    centers = load_torii15_vocab(assets.vocab_mat_path()).centers
+
+    idx_kdtree = _kdtree_assignments_idx(desc_rs, centers)
+    idx_matmul = _matmul_assignments_idx(desc_rs, centers)
+
+    np.testing.assert_array_equal(
+        idx_matmul,
+        idx_kdtree,
+        err_msg="matmul and kdtree assignments must be identical",
+    )
