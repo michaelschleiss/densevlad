@@ -92,6 +92,14 @@ Masked grid parity uses:
 `scripts/matlab/dump_densevlad_grid.m`, which writes:
 `~/Library/Caches/dvlad/torii15/matlab_dump/densevlad_grid_dump.mat`.
 
+Tokyo247 golden references use:
+`scripts/matlab/dump_tokyo247_golden.m`, which writes:
+- `~/Library/Caches/dvlad/torii15/matlab_dump/tokyo247_golden.mat`
+- `~/Library/Caches/dvlad/torii15/matlab_dump/tokyo247_golden_list.txt`
+
+The golden set samples 5 DB + 5 query images (seed 1337) and stores both
+pre-PCA VLAD (16384-D) and PCA-whitened VLAD (4096-D) for parity tests.
+
 The repo ships a MATLAB-normalized centers asset at:
 `src/dvlad/torii15/data/dnscnt_RDSIFT_K128.cx_norm.npy`.
 This is the exact `CX` after MATLAB normalization, so kd-tree assignments

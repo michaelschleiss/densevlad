@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from dvlad.torii15 import Torii15Assets, compute_densevlad_pre_pca, load_torii15_vocab
+from dvlad.torii15 import image as image_mod
+from dvlad.torii15.tokyo247 import Tokyo247Paths
+from dvlad.torii15.whitening import apply_pca_whitening, load_torii15_pca_whitening
+
+image_mod.set_simd_enabled(False)
+
+
+def _require_h5py():
+    try:
+        import h5py  # type: ignore[import-not-found]
+    except Exception:
+        pytest.fail(
+            "h5py is required for Tokyo247 golden parity tests. Install it and rerun.",
+            pytrace=False,
+        )
+    return h5py
+
+
+def _golden_paths() -> tuple[Path, Path]:
+    base = (
+        Path.home()
+        / "Library"
+        / "Caches"
+        / "dvlad"
+        / "torii15"
+        / "matlab_dump"
+    )
+    return base / "tokyo247_golden.mat", base / "tokyo247_golden_list.txt"
+
+
+def _require_golden_assets() -> tuple[object, Path, Path]:
+    h5py = _require_h5py()
+    mat_path, list_path = _golden_paths()
+    if not mat_path.exists() or not list_path.exists():
+        pytest.fail(
+            "Tokyo247 golden references not found. Run "
+            "scripts/matlab/dump_tokyo247_golden.m to generate:\n"
+            f"  {mat_path}\n  {list_path}",
+            pytrace=False,
+        )
+    return h5py, mat_path, list_path
+
+
+def _load_matlab_matrix(mat, name: str, *, dim: int) -> np.ndarray:
+    arr = np.array(mat[name])
+    if arr.ndim != 2:
+        raise ValueError(f"Expected 2D array for {name}, got shape {arr.shape}")
+    if arr.shape[0] == dim:
+        arr = arr.T
+    elif arr.shape[1] != dim:
+        raise ValueError(f"Unexpected {name} shape: {arr.shape} (dim {dim})")
+    return np.asarray(arr, dtype=np.float32)
+
+
+def _load_golden_list(list_path: Path, paths: Tokyo247Paths) -> list[Path]:
+    lines = [line.strip() for line in list_path.read_text().splitlines() if line.strip()]
+    image_paths: list[Path] = []
+    for line in lines:
+        parts = line.split("\t")
+        if len(parts) != 2:
+            raise ValueError(f"Invalid golden list line: {line}")
+        kind, rel = parts
+        if kind == "db":
+            image_paths.append(paths.db_dir / rel)
+        elif kind == "query":
+            image_paths.append(paths.query_dir / rel)
+        else:
+            raise ValueError(f"Unexpected entry kind: {kind}")
+    return image_paths
+
+
+def test_tokyo247_golden_vectors_match_matlab():
+    h5py, mat_path, list_path = _require_golden_assets()
+    paths = Tokyo247Paths.default()
+    image_paths = _load_golden_list(list_path, paths)
+
+    assets = Torii15Assets.default()
+    vocab = load_torii15_vocab(assets.vocab_mat_path())
+    pca = load_torii15_pca_whitening(assets.pca_mat_path(), dim=4096)
+
+    orig_assign = os.environ.get("DVLAD_ASSIGN_METHOD")
+    os.environ["DVLAD_ASSIGN_METHOD"] = "matmul"
+    try:
+        pre_list = []
+        v_list = []
+        for img_path in image_paths:
+            v_pre = compute_densevlad_pre_pca(img_path, vocab)
+            v_pre = np.asarray(v_pre, dtype=np.float32).reshape(-1)
+            pre_list.append(v_pre)
+            v_list.append(apply_pca_whitening(v_pre, pca))
+        pre = np.vstack(pre_list)
+        v = np.vstack(v_list)
+    finally:
+        if orig_assign is None:
+            os.environ.pop("DVLAD_ASSIGN_METHOD", None)
+        else:
+            os.environ["DVLAD_ASSIGN_METHOD"] = orig_assign
+
+    with h5py.File(mat_path, "r") as mat:
+        pre_ref = _load_matlab_matrix(mat, "vlad_pre", dim=16384)
+        v_ref = _load_matlab_matrix(mat, "vlad_4096", dim=4096)
+
+    assert pre.shape == pre_ref.shape
+    assert v.shape == v_ref.shape
+    np.testing.assert_allclose(pre, pre_ref, rtol=0, atol=1e-4)
+    np.testing.assert_allclose(v, v_ref, rtol=0, atol=1e-4)
