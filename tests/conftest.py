@@ -31,7 +31,7 @@ def _collect_setup_issues() -> tuple[list[str], dict[str, bool]]:
             "Missing 247code assets:\n"
             f"  {exc}\n"
             "Download them with:\n"
-            "  python scripts/ensure_assets.py"
+            "  python scripts/download_assets.py"
         )
 
     paths = Tokyo247Paths.default()
@@ -47,7 +47,7 @@ def _collect_setup_issues() -> tuple[list[str], dict[str, bool]]:
             "Missing Tokyo247 query assets:\n"
             f"{tokyo_lines}\n"
             "Download them with:\n"
-            "  python scripts/ensure_assets.py"
+            "  python scripts/download_assets.py"
         )
 
     tokyo_list = (
@@ -81,7 +81,7 @@ def _collect_setup_issues() -> tuple[list[str], dict[str, bool]]:
                 "Missing Tokyo247 images referenced by golden list:\n"
                 f"{missing_lines}\n"
                 "Download them with:\n"
-                "  python scripts/ensure_assets.py --tokyo-db minimal"
+                "  python scripts/download_assets.py"
             )
     base = (
         Path(__file__).resolve().parents[1]

@@ -39,26 +39,13 @@ If you cloned without submodules:
 git submodule update --init --recursive
 ```
 
-To download required assets (247code + Tokyo247 dbStruct/query subset, and
-optionally the Tokyo247 database), run:
+To download required assets (247code + full Tokyo247 dbStruct/queries/database),
+run:
 ```
-python scripts/ensure_assets.py
-```
-Defaults: `--tokyo-db minimal --tokyo-queries subset`.
-Choose DB download size:
-```
-python scripts/ensure_assets.py --tokyo-db none
-python scripts/ensure_assets.py --tokyo-db minimal
-python scripts/ensure_assets.py --tokyo-db full
-```
-Choose query set:
-```
-python scripts/ensure_assets.py --tokyo-queries none
-python scripts/ensure_assets.py --tokyo-queries subset
-python scripts/ensure_assets.py --tokyo-queries full
+python scripts/download_assets.py
 ```
 
-Tests do not download Tokyo247 assets. Run `python scripts/ensure_assets.py`
+Tests do not download Tokyo247 assets. Run `python scripts/download_assets.py`
 before running pytest. The Tokyo247 golden test requires the specific images
 listed in `./assets/torii15/matlab_dump/tokyo247_golden_list.txt`.
 

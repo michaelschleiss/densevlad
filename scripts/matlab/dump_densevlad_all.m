@@ -341,7 +341,7 @@ repo_root = fullfile(this_dir, '..', '..');
 local_root = fullfile(repo_root, '247code');
 root_dir = local_root;
 if ~exist(root_dir, 'dir')
-    error('Missing 247code repo: %s (run python scripts/ensure_assets.py)', root_dir);
+    error('Missing 247code repo: %s (run python scripts/download_assets.py)', root_dir);
 end
 at_setup_path = fullfile(root_dir, 'at_setup.m');
 if ~exist(at_setup_path, 'file')
