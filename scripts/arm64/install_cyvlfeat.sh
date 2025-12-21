@@ -9,26 +9,25 @@ ARM64_DIR="${ROOT_DIR}/scripts/arm64"
 REF_DIR="${ROOT_DIR}/scripts/reference/cyvlfeat"
 CACHE_BASE="${XDG_CACHE_HOME:-$HOME/Library/Caches}"
 CYVLFEAT_CACHE="${CACHE_BASE}/densevlad/cyvlfeat"
-CYVLFEAT_VER="0.7.1"
-CYVLFEAT_TAR="cyvlfeat-${CYVLFEAT_VER}.tar.gz"
-CYVLFEAT_SRC="${CYVLFEAT_CACHE}/cyvlfeat-${CYVLFEAT_VER}"
+CYVLFEAT_SRC="${ROOT_DIR}/thirdparty/cyvlfeat"
 
-mkdir -p "${CYVLFEAT_CACHE}"
-
-if [[ ! -f "${CYVLFEAT_CACHE}/${CYVLFEAT_TAR}" ]]; then
-  python -m pip download --no-deps --no-binary=cyvlfeat -d "${CYVLFEAT_CACHE}" "cyvlfeat==${CYVLFEAT_VER}"
+if [[ ! -d "${CYVLFEAT_SRC}" ]]; then
+  echo "cyvlfeat submodule not found at ${CYVLFEAT_SRC}."
+  echo "Run: git submodule update --init --recursive"
+  exit 1
 fi
 
-if [[ -d "${CYVLFEAT_SRC}" ]]; then
-  rm -rf "${CYVLFEAT_SRC}"
-fi
-tar -xzf "${CYVLFEAT_CACHE}/${CYVLFEAT_TAR}" -C "${CYVLFEAT_CACHE}"
+INSTALL_SRC="${CYVLFEAT_SRC}"
 
 if [[ "${DVLAD_PATCH_CYVLFEAT:-0}" != "0" ]]; then
-  python "${REF_DIR}/patch_cyvlfeat_sdist.py" "${CYVLFEAT_SRC}"
+  mkdir -p "${CYVLFEAT_CACHE}"
+  INSTALL_SRC="${CYVLFEAT_CACHE}/cyvlfeat-patched"
+  rm -rf "${INSTALL_SRC}"
+  rsync -a --delete --exclude ".git" "${CYVLFEAT_SRC}/" "${INSTALL_SRC}/"
+  python "${REF_DIR}/patch_cyvlfeat_sdist.py" "${INSTALL_SRC}"
 fi
 
-python -m pip install --no-deps --force-reinstall --no-cache-dir --no-build-isolation "${CYVLFEAT_SRC}"
+python -m pip install --no-deps --force-reinstall --no-cache-dir --no-build-isolation "${INSTALL_SRC}"
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
   python "${ARM64_DIR}/fix_cyvlfeat_rpath.py"

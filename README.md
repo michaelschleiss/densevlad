@@ -39,12 +39,12 @@ If you cloned without submodules:
 git submodule update --init --recursive
 ```
 
-The repo also includes a clean `thirdparty/cyvlfeat` submodule pinned at
-v0.7.1 for reference. The default workflow still installs `cyvlfeat` from
-PyPI; no local patches are required for correctness. An optional reference
-patch lives at `scripts/reference/cyvlfeat/patch_cyvlfeat_sdist.py` and adds
-C-level permute/contrast handling for faster PHOW, but it is not used by
-default. To apply it in the arm64 helper, set `DVLAD_PATCH_CYVLFEAT=1`.
+The repo includes a clean `thirdparty/cyvlfeat` submodule pinned at
+v0.7.1-densevlad and the workflow installs `cyvlfeat` from that submodule.
+An optional reference patch lives at
+`scripts/reference/cyvlfeat/patch_cyvlfeat_sdist.py` and adds C-level
+permute/contrast handling for faster PHOW; to apply it in the arm64 helper,
+set `DVLAD_PATCH_CYVLFEAT=1`.
 
 To force exact scalar math (used by strict parity tests), set:
 `DVLAD_DISABLE_SIMD=1`.
