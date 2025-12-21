@@ -50,16 +50,27 @@ def _extract_tar(tar_path: Path, dest_dir: Path) -> None:
 
 
 def ensure_247code() -> None:
+    """Download 247code, extracting only data/ and thirdparty/ (code/ is tracked in git)."""
     root = REPO_ROOT / "247code"
-    if root.is_dir():
-        print(f"247code already present: {root}")
+    data_dir = root / "data"
+    thirdparty_dir = root / "thirdparty"
+
+    # Check if we need to download
+    if data_dir.is_dir() and thirdparty_dir.is_dir():
+        print(f"247code data/thirdparty already present: {root}")
         return
+
     zip_path = REPO_ROOT / "247code.zip"
     if not zip_path.exists():
         _download("http://www.ok.ctrl.titech.ac.jp/~torii/project/247/download/247code.zip", zip_path)
-    print(f"Extracting {zip_path} -> {REPO_ROOT}")
+
+    # Extract only data/ and thirdparty/, skip code/ (tracked in git)
+    print(f"Extracting 247code data/thirdparty from {zip_path}")
     with zipfile.ZipFile(zip_path) as zf:
-        zf.extractall(REPO_ROOT)
+        for member in zf.namelist():
+            # Only extract data/ and thirdparty/ subdirs
+            if member.startswith("247code/data/") or member.startswith("247code/thirdparty/"):
+                zf.extract(member, REPO_ROOT)
     zip_path.unlink(missing_ok=True)
     print(f"247code ready: {root}")
 

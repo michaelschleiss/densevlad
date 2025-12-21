@@ -19,8 +19,10 @@ build/
 .pixi/*
 !.pixi/config.toml
 
-# Original 247code package (downloaded)
-247code/
+# 247code: track source, ignore large binaries/data
+247code/data/
+247code/thirdparty/
+247code/**/*.mex*
 
 # Repo-local assets (downloaded)
 assets/
