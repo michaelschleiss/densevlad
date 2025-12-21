@@ -92,6 +92,9 @@ Tokyo247 golden references use:
 - `./assets/torii15/matlab_dump/tokyo247_golden.mat`
 - `./assets/torii15/matlab_dump/tokyo247_golden_list.txt`
 
+For a blackbox, more faithful dump (no intermediate outputs), use:
+`scripts/dump_densevlad_all_blackbox.m` with the same modes.
+
 The golden set samples 5 DB + 5 query images (seed 1337), resizes to max 640
 pixels (paper setting), and stores both pre-PCA VLAD (16384-D) and
 PCA-whitened VLAD (4096-D) for parity tests.

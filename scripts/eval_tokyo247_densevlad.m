@@ -27,8 +27,9 @@ opts.use_imdown = false;
 
 opts = parse_opts(opts, varargin{:});
 
-home = getenv('HOME');
-cache_dir = fullfile(home, 'Library', 'Caches', 'densevlad', 'torii15');
+this_dir = fileparts(mfilename('fullpath'));
+repo_root = fullfile(this_dir, '..');
+cache_dir = fullfile(repo_root, 'assets', 'torii15');
 root_dir = fullfile(cache_dir, 'tokyo247');
 if isempty(opts.dbstruct_path)
     opts.dbstruct_path = fullfile(root_dir, 'tokyo247.mat');
@@ -37,7 +38,7 @@ if isempty(opts.db_dir)
     opts.db_dir = fullfile(root_dir, 'database_gsv_vga');
 end
 if isempty(opts.query_dir)
-    opts.query_dir = fullfile(cache_dir, '247query_subset_v2');
+    opts.query_dir = fullfile(cache_dir, 'queries');
 end
 if isempty(opts.out_dir)
     opts.out_dir = fullfile(root_dir, 'matlab_densevlad_cache');
@@ -52,11 +53,11 @@ if ~exist(opts.out_dir, 'dir')
     mkdir(opts.out_dir);
 end
 
-code_root = fullfile(cache_dir, '247code');
-addpath(code_root);
-addpath(fullfile(code_root, 'code'));
-addpath(fileparts(mfilename('fullpath')));
-run(fullfile(code_root, 'thirdparty', 'vlfeat-0.9.20', 'toolbox', 'vl_setup'));
+code_root = fullfile(repo_root, '247code');
+orig_dir = pwd;
+cd(code_root);
+run('at_setup');
+cd(orig_dir);
 
 if exist('im2single', 'file') ~= 2
     error('Image Processing Toolbox required (missing im2single).');
@@ -227,9 +228,7 @@ end
 [~, desc] = vl_phow(img_single);
 desc = relja_rootsift(single(desc));
 vlad = relja_computeVLAD(desc, CX, kdtree);
-v = vlad_proj * vlad;
-v = vlad_wht * v;
-v = v / norm(v);
+v = yael_vecs_normalize(vlad_wht * (vlad_proj * vlad));
 end
 
 function img = resize_max_dim(img, max_dim)
