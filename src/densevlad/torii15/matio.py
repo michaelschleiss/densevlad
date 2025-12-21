@@ -9,7 +9,7 @@ def load_mat_v5(path: str | Path) -> dict[str, Any]:
         from scipy.io import loadmat
     except ModuleNotFoundError as e:
         raise ModuleNotFoundError(
-            "scipy is required to load MATLAB v5 .mat files (pip install dvlad[dev] or scipy)."
+            "scipy is required to load MATLAB v5 .mat files (pip install densevlad[dev] or scipy)."
         ) from e
 
     return loadmat(path)

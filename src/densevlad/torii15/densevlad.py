@@ -31,7 +31,7 @@ def _l2normalize_cols(x: np.ndarray) -> np.ndarray:
 
 def _load_packaged_centers() -> np.ndarray | None:
     try:
-        data_path = importlib_resources.files("dvlad.torii15").joinpath(
+        data_path = importlib_resources.files("densevlad.torii15").joinpath(
             "data/dnscnt_RDSIFT_K128.cx_norm.npy"
         )
     except Exception:

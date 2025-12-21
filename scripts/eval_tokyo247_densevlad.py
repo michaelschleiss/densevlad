@@ -10,20 +10,20 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial import cKDTree
 
-from dvlad.torii15.assets import Torii15Assets
-from dvlad.torii15.densevlad import (
+from densevlad.torii15.assets import Torii15Assets
+from densevlad.torii15.densevlad import (
     Torii15Vocab,
     compute_densevlad_pre_pca,
     load_torii15_vocab,
 )
-from dvlad.torii15.tokyo247 import (
+from densevlad.torii15.tokyo247 import (
     Tokyo247Paths,
     load_query_time_of_day,
     load_tokyo247_dbstruct,
     resolve_db_image_paths,
     resolve_query_image_paths,
 )
-from dvlad.torii15.whitening import apply_pca_whitening, load_torii15_pca_whitening
+from densevlad.torii15.whitening import apply_pca_whitening, load_torii15_pca_whitening
 
 
 def _ensure_memmap(path: Path, shape: tuple[int, ...], dtype: str) -> np.memmap:

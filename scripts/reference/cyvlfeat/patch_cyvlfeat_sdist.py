@@ -308,7 +308,7 @@ def main() -> int:
     patched_py = _patch_dsift_py(dsift_py)
 
     if patched_cysift or patched_pxd or patched_py:
-        print("Patched cyvlfeat dsift sources for DVlad optimizations.")
+        print("Patched cyvlfeat dsift sources for DenseVLAD optimizations.")
     else:
         print("cyvlfeat dsift sources already patched.")
     return 0

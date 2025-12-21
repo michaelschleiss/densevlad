@@ -26,7 +26,7 @@ def _default_dump_path() -> Path:
         Path.home()
         / "Library"
         / "Caches"
-        / "dvlad"
+        / "densevlad"
         / "torii15"
         / "matlab_dump"
         / "densevlad_dump.mat"
@@ -35,7 +35,7 @@ def _default_dump_path() -> Path:
 
 def _default_out_path() -> Path:
     repo_root = Path(__file__).resolve().parents[1]
-    return repo_root / "src" / "dvlad" / "torii15" / "data" / "dnscnt_RDSIFT_K128.cx_norm.npy"
+    return repo_root / "src" / "densevlad" / "torii15" / "data" / "dnscnt_RDSIFT_K128.cx_norm.npy"
 
 
 def _load_cx(dump_path: Path) -> np.ndarray:

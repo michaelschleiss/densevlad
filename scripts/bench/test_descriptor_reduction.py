@@ -9,14 +9,14 @@ from pathlib import Path
 import h5py
 import numpy as np
 
-from dvlad.torii15 import Torii15Assets, load_torii15_vocab
-from dvlad.torii15.densevlad import _assignments_idx, _rootsift, _vl_vlad_hard
-from dvlad.torii15.image import read_gray_im2single, vl_imsmooth_gaussian
-from dvlad.torii15.tokyo247 import Tokyo247Paths
+from densevlad.torii15 import Torii15Assets, load_torii15_vocab
+from densevlad.torii15.densevlad import _assignments_idx, _rootsift, _vl_vlad_hard
+from densevlad.torii15.image import read_gray_im2single, vl_imsmooth_gaussian
+from densevlad.torii15.tokyo247 import Tokyo247Paths
 
 
 def _golden_paths() -> tuple[Path, Path]:
-    base = Path.home() / "Library" / "Caches" / "dvlad" / "torii15" / "matlab_dump"
+    base = Path.home() / "Library" / "Caches" / "densevlad" / "torii15" / "matlab_dump"
     return base / "tokyo247_golden.mat", base / "tokyo247_golden_list.txt"
 
 
@@ -48,7 +48,7 @@ def _phow_descs_variable(
 ) -> np.ndarray:
     """Modified PHOW with configurable parameters."""
     from cyvlfeat.sift import dsift
-    from dvlad.torii15.densevlad import _DSIFT_TRANSPOSE_PERM
+    from densevlad.torii15.densevlad import _DSIFT_TRANSPOSE_PERM
 
     magnification = 6
     window_size = 1.5

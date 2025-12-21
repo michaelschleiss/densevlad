@@ -4,8 +4,8 @@ import base64
 
 import numpy as np
 
-from dvlad.torii15 import Torii15Assets, apply_pca_whitening, load_torii15_pca_whitening
-from dvlad.torii15.whitening import load_reference_pre_pca_vlad
+from densevlad.torii15 import Torii15Assets, apply_pca_whitening, load_torii15_pca_whitening
+from densevlad.torii15.whitening import load_reference_pre_pca_vlad
 
 
 def _expected_v4096() -> np.ndarray:

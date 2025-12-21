@@ -44,7 +44,7 @@ class Torii15Assets:
 
     @staticmethod
     def default_cache_dir() -> Path:
-        return Path(user_cache_dir("dvlad")) / "torii15"
+        return Path(user_cache_dir("densevlad")) / "torii15"
 
     @classmethod
     def default(cls) -> "Torii15Assets":

@@ -4,8 +4,8 @@ import base64
 
 import numpy as np
 
-from dvlad.torii15 import Torii15Assets
-from dvlad.torii15.whitening import apply_pca_whitening, load_reference_pre_pca_vlad, load_torii15_pca_whitening
+from densevlad.torii15 import Torii15Assets
+from densevlad.torii15.whitening import apply_pca_whitening, load_reference_pre_pca_vlad, load_torii15_pca_whitening
 
 
 def main() -> None:

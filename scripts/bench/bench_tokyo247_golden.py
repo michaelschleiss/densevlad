@@ -7,14 +7,14 @@ import time
 import h5py
 import numpy as np
 
-from dvlad.torii15 import Torii15Assets, load_torii15_vocab
-from dvlad.torii15.densevlad import _assignments_idx, _phow_descs, _rootsift, _vl_vlad_hard
-from dvlad.torii15.image import read_gray_im2single
-from dvlad.torii15.tokyo247 import Tokyo247Paths
+from densevlad.torii15 import Torii15Assets, load_torii15_vocab
+from densevlad.torii15.densevlad import _assignments_idx, _phow_descs, _rootsift, _vl_vlad_hard
+from densevlad.torii15.image import read_gray_im2single
+from densevlad.torii15.tokyo247 import Tokyo247Paths
 
 
 def _golden_paths() -> tuple[Path, Path]:
-    base = Path.home() / "Library" / "Caches" / "dvlad" / "torii15" / "matlab_dump"
+    base = Path.home() / "Library" / "Caches" / "densevlad" / "torii15" / "matlab_dump"
     return base / "tokyo247_golden.mat", base / "tokyo247_golden_list.txt"
 
 

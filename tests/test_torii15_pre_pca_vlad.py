@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 from pathlib import Path
 
-from dvlad.torii15 import Torii15Assets, compute_densevlad_pre_pca, load_torii15_vocab
-from dvlad.torii15 import image as image_mod
+from densevlad.torii15 import Torii15Assets, compute_densevlad_pre_pca, load_torii15_vocab
+from densevlad.torii15 import image as image_mod
 
 image_mod.set_simd_enabled(False)
 
@@ -26,7 +26,7 @@ def _matlab_dump_path(name: str) -> Path:
         Path.home()
         / "Library"
         / "Caches"
-        / "dvlad"
+        / "densevlad"
         / "torii15"
         / "matlab_dump"
         / name

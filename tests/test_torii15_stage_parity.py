@@ -5,9 +5,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from dvlad.torii15 import Torii15Assets
-from dvlad.torii15 import image as image_mod
-from dvlad.torii15.densevlad import _DSIFT_TRANSPOSE_PERM, _kdtree_assignments, _rootsift
+from densevlad.torii15 import Torii15Assets
+from densevlad.torii15 import image as image_mod
+from densevlad.torii15.densevlad import _DSIFT_TRANSPOSE_PERM, _kdtree_assignments, _rootsift
 
 image_mod.set_simd_enabled(False)
 
@@ -17,7 +17,7 @@ def _matlab_dump_path() -> Path:
         Path.home()
         / "Library"
         / "Caches"
-        / "dvlad"
+        / "densevlad"
         / "torii15"
         / "matlab_dump"
         / "densevlad_dump.mat"
@@ -29,7 +29,7 @@ def _matlab_grid_dump_path() -> Path:
         Path.home()
         / "Library"
         / "Caches"
-        / "dvlad"
+        / "densevlad"
         / "torii15"
         / "matlab_dump"
         / "densevlad_grid_dump.mat"
@@ -208,7 +208,7 @@ def test_phow_descs_match_matlab_dump():
         "247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.jpg"
     )
 
-    from dvlad.torii15.densevlad import _phow_descs
+    from densevlad.torii15.densevlad import _phow_descs
 
     img_single = image_mod.read_gray_im2single(image_path)
     descs = _phow_descs(img_single)
@@ -230,7 +230,7 @@ def test_rootsift_and_assignments_match_matlab_dump():
         "247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.jpg"
     )
 
-    from dvlad.torii15.densevlad import _phow_descs
+    from densevlad.torii15.densevlad import _phow_descs
 
     img_single = image_mod.read_gray_im2single(image_path)
     descs = _phow_descs(img_single)
@@ -246,7 +246,7 @@ def test_rootsift_and_assignments_match_matlab_dump():
 
     np.testing.assert_array_equal(desc_rs, desc_rs_ref)
 
-    from dvlad.torii15 import load_torii15_vocab
+    from densevlad.torii15 import load_torii15_vocab
 
     centers = load_torii15_vocab(assets.vocab_mat_path()).centers
     assigns = _kdtree_assignments(desc_rs, centers)
@@ -269,7 +269,7 @@ def test_grid_mask_matches_matlab_dump():
     )
     plane_path = assets.extract_member("247code/data/example_grid/planes.txt")
 
-    from dvlad.torii15.densevlad import _grid_mask_features_dense, _phow
+    from densevlad.torii15.densevlad import _grid_mask_features_dense, _phow
 
     img_single = image_mod.read_gray_im2single(image_path)
     frames, descs = _phow(img_single)
@@ -304,8 +304,8 @@ def test_matmul_kdtree_assignment_equivalence():
         "247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.jpg"
     )
 
-    from dvlad.torii15 import load_torii15_vocab
-    from dvlad.torii15.densevlad import (
+    from densevlad.torii15 import load_torii15_vocab
+    from densevlad.torii15.densevlad import (
         _phow_descs,
         _kdtree_assignments_idx,
         _matmul_assignments_idx,

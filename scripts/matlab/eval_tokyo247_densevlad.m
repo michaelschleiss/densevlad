@@ -28,7 +28,7 @@ opts.use_imdown = false;
 opts = parse_opts(opts, varargin{:});
 
 home = getenv('HOME');
-cache_dir = fullfile(home, 'Library', 'Caches', 'dvlad', 'torii15');
+cache_dir = fullfile(home, 'Library', 'Caches', 'densevlad', 'torii15');
 root_dir = fullfile(cache_dir, 'tokyo247');
 if isempty(opts.dbstruct_path)
     opts.dbstruct_path = fullfile(root_dir, 'tokyo247.mat');

@@ -1,16 +1,16 @@
 function dump_densevlad_grid(out_dir)
 %DUMP_DENSEVLAD_GRID Dump masked DenseVLAD intermediates for example_grid.
-%  dump_densevlad_grid() saves to ~/Library/Caches/dvlad/torii15/matlab_dump.
+%  dump_densevlad_grid() saves to ~/Library/Caches/densevlad/torii15/matlab_dump.
 %  dump_densevlad_grid(out_dir) saves to out_dir.
 
 if nargin < 1 || isempty(out_dir)
-    out_dir = fullfile(getenv('HOME'), 'Library', 'Caches', 'dvlad', 'torii15', 'matlab_dump');
+    out_dir = fullfile(getenv('HOME'), 'Library', 'Caches', 'densevlad', 'torii15', 'matlab_dump');
 end
 if ~exist(out_dir, 'dir')
     mkdir(out_dir);
 end
 
-cache_dir = fullfile(getenv('HOME'), 'Library', 'Caches', 'dvlad', 'torii15');
+cache_dir = fullfile(getenv('HOME'), 'Library', 'Caches', 'densevlad', 'torii15');
 zip_path = fullfile(cache_dir, '247code.zip');
 root_dir = fullfile(cache_dir, '247code');
 url = 'http://www.ok.ctrl.titech.ac.jp/~torii/project/247/download/247code.zip';

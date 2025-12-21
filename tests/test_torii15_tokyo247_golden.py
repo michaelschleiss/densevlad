@@ -6,10 +6,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from dvlad.torii15 import Torii15Assets, compute_densevlad_pre_pca, load_torii15_vocab
-from dvlad.torii15 import image as image_mod
-from dvlad.torii15.tokyo247 import Tokyo247Paths
-from dvlad.torii15.whitening import apply_pca_whitening, load_torii15_pca_whitening
+from densevlad.torii15 import Torii15Assets, compute_densevlad_pre_pca, load_torii15_vocab
+from densevlad.torii15 import image as image_mod
+from densevlad.torii15.tokyo247 import Tokyo247Paths
+from densevlad.torii15.whitening import apply_pca_whitening, load_torii15_pca_whitening
 
 image_mod.set_simd_enabled(False)
 
@@ -30,7 +30,7 @@ def _golden_paths() -> tuple[Path, Path]:
         Path.home()
         / "Library"
         / "Caches"
-        / "dvlad"
+        / "densevlad"
         / "torii15"
         / "matlab_dump"
     )

@@ -18,3 +18,6 @@ build/
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+# Original 247code package (downloaded)
+247code/

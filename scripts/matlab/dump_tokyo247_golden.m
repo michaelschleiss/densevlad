@@ -1,7 +1,7 @@
 function dump_tokyo247_golden(varargin)
 %DUMP_TOKYO247_GOLDEN Generate DenseVLAD golden references for Tokyo 24/7.
 %  dump_tokyo247_golden() writes a v7.3 .mat plus a text list to:
-%    ~/Library/Caches/dvlad/torii15/matlab_dump/
+%    ~/Library/Caches/densevlad/torii15/matlab_dump/
 %
 %  Name-value options:
 %    'seed'   : RNG seed (default 1337)
@@ -19,7 +19,7 @@ opts.out_dir = '';
 opts = parse_opts(opts, varargin{:});
 
 if isempty(opts.out_dir)
-    opts.out_dir = fullfile(getenv('HOME'), 'Library', 'Caches', 'dvlad', 'torii15', 'matlab_dump');
+    opts.out_dir = fullfile(getenv('HOME'), 'Library', 'Caches', 'densevlad', 'torii15', 'matlab_dump');
 end
 if ~exist(opts.out_dir, 'dir')
     mkdir(opts.out_dir);
@@ -28,7 +28,7 @@ end
 this_dir = fileparts(mfilename('fullpath'));
 addpath(this_dir);
 
-cache_dir = fullfile(getenv('HOME'), 'Library', 'Caches', 'dvlad', 'torii15');
+cache_dir = fullfile(getenv('HOME'), 'Library', 'Caches', 'densevlad', 'torii15');
 root_dir = fullfile(cache_dir, '247code');
 tokyo_root = fullfile(cache_dir, 'tokyo247');
 db_dir = fullfile(tokyo_root, 'database_gsv_vga');

@@ -3,7 +3,7 @@ requires = ["hatchling>=1.24.2"]
 build-backend = "hatchling.build"
 
 [project]
-name = "dvlad"
+name = "densevlad"
 version = "0.0.1"
 description = "DenseVLAD replication (Torii et al. 2015 baseline)"
 readme = "README.md"
@@ -34,7 +34,7 @@ markers = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/dvlad"]
+packages = ["src/densevlad"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
@@ -60,9 +60,9 @@ dev = { features = ["dev"], solve-group = "default" }
 [tool.pixi.tasks]
 build-vlfeat-linux = "bash scripts/linux/build_vlfeat_linux.sh"
 install-cyvlfeat-linux = "bash -lc 'source .pixi/vlfeat_env_linux.sh && bash scripts/linux/install_cyvlfeat.sh'"
-install-dvlad-linux = "bash -lc 'source .pixi/vlfeat_env_linux.sh && python -m pip install -e . --no-deps'"
+install-densevlad-linux = "bash -lc 'source .pixi/vlfeat_env_linux.sh && python -m pip install -e . --no-deps'"
 test-prepca-linux = "bash -lc 'source .pixi/vlfeat_env_linux.sh && python -m pytest tests/test_torii15_pre_pca_vlad.py -q'"
 build-vlfeat-arm64 = "bash scripts/arm64/build_vlfeat_arm64.sh"
 install-cyvlfeat-arm64 = "bash -lc 'source .pixi/vlfeat_env.sh && bash scripts/arm64/install_cyvlfeat.sh'"
-install-dvlad-arm64 = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pip install -e . --no-deps'"
+install-densevlad-arm64 = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pip install -e . --no-deps'"
 test-prepca-arm64 = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pytest tests/test_torii15_pre_pca_vlad.py -q'"
