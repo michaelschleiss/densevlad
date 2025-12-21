@@ -6,17 +6,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-TARGET_DIR="$PROJECT_ROOT/247code"
+TARGET_DIR="$PROJECT_ROOT"
 ZIP_FILE="$TARGET_DIR/247code.zip"
 URL="http://www.ok.ctrl.titech.ac.jp/~torii/project/247/download/247code.zip"
 
 echo "Downloading original 247code package..."
 echo "URL: $URL"
-echo "Target: $TARGET_DIR"
+echo "Target: $ZIP_FILE"
 echo ""
-
-# Create target directory
-mkdir -p "$TARGET_DIR"
 
 # Download if not exists
 if [ -f "$ZIP_FILE" ]; then
@@ -39,7 +36,8 @@ fi
 echo ""
 echo "Extracting..."
 unzip -q "$ZIP_FILE" -d "$TARGET_DIR"
-echo "Extracted to: $TARGET_DIR"
+echo "Extracted to: $TARGET_DIR/247code"
+rm -f "$ZIP_FILE"
 
 echo ""
 echo "Contents:"

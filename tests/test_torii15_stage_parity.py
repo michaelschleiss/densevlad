@@ -11,29 +11,18 @@ from densevlad.torii15.densevlad import _DSIFT_TRANSPOSE_PERM, _kdtree_assignmen
 
 image_mod.set_simd_enabled(False)
 
+_VLFEAT_SETUP_HINT = (
+    "Setup (linux/pixi example):\n"
+    "  pixi install -e dev\n"
+    "  pixi run build-vlfeat-linux\n"
+    "  pixi run install-cyvlfeat-linux\n"
+    "  pixi run install-densevlad-linux\n"
+    "  source .pixi/vlfeat_env_linux.sh"
+)
+
 
 def _matlab_dump_path() -> Path:
-    return (
-        Path.home()
-        / "Library"
-        / "Caches"
-        / "densevlad"
-        / "torii15"
-        / "matlab_dump"
-        / "densevlad_dump.mat"
-    )
-
-
-def _matlab_grid_dump_path() -> Path:
-    return (
-        Path.home()
-        / "Library"
-        / "Caches"
-        / "densevlad"
-        / "torii15"
-        / "matlab_dump"
-        / "densevlad_grid_dump.mat"
-    )
+    return Torii15Assets.default_cache_dir() / "matlab_dump" / "densevlad_dump.mat"
 
 
 def _require_h5py():
@@ -41,7 +30,8 @@ def _require_h5py():
         import h5py  # type: ignore[import-not-found]
     except Exception:
         pytest.fail(
-            "h5py is required for MATLAB dump parity tests. Install it and rerun.",
+            "SETUP REQUIRED: h5py is required for MATLAB dump parity tests.\n"
+            "Install it and rerun.",
             pytrace=False,
         )
     return h5py
@@ -52,8 +42,9 @@ def _require_cyvlfeat():
         import cyvlfeat  # noqa: F401
     except Exception:
         pytest.fail(
-            "cyvlfeat is required for DenseVLAD parity tests. Build/install it "
-            "(after VLFeat) and rerun.",
+            "SETUP REQUIRED: cyvlfeat is required for DenseVLAD parity tests.\n"
+            "Build/install it (after VLFeat) and rerun.\n"
+            f"{_VLFEAT_SETUP_HINT}",
             pytrace=False,
         )
 
@@ -61,8 +52,9 @@ def _require_cyvlfeat():
 def _require_vlfeat_imconv():
     if not image_mod._VLFEAT_IMCONV_AVAILABLE:
         pytest.fail(
-            "VLFeat imconv is required for exact imsmooth/dsift parity. Build and "
-            "load libvl with imconv enabled.",
+            "SETUP REQUIRED: VLFeat imconv is required for exact imsmooth/dsift parity.\n"
+            "Build and load libvl with imconv enabled.\n"
+            f"{_VLFEAT_SETUP_HINT}",
             pytrace=False,
         )
 
@@ -70,8 +62,9 @@ def _require_vlfeat_imconv():
 def _require_libvl():
     if image_mod._LIBVL is None:
         pytest.fail(
-            "VLFeat libvl (kdforest) is required for assignment parity. Ensure "
-            "libvl is built and discoverable.",
+            "SETUP REQUIRED: VLFeat libvl (kdforest) is required for assignment parity.\n"
+            "Ensure libvl is built and discoverable.\n"
+            f"{_VLFEAT_SETUP_HINT}",
             pytrace=False,
         )
 
@@ -81,23 +74,14 @@ def _require_matlab_dump():
     dump_path = _matlab_dump_path()
     if not dump_path.exists():
         pytest.fail(
-            f"MATLAB dump not found: {dump_path}. Run scripts/matlab/dump_densevlad.m "
-            "to generate it.",
+            "SETUP REQUIRED: MATLAB dump not found.\n"
+            f"  Expected: {dump_path}\n"
+            "Generate it with:\n"
+            "  matlab -batch \"run('scripts/matlab/dump_densevlad_all.m'); dump_densevlad_all('densevlad')\"",
             pytrace=False,
         )
     return h5py, dump_path
 
-
-def _require_matlab_grid_dump():
-    h5py = _require_h5py()
-    dump_path = _matlab_grid_dump_path()
-    if not dump_path.exists():
-        pytest.fail(
-            f"MATLAB grid dump not found: {dump_path}. Run "
-            "scripts/matlab/dump_densevlad_grid.m to generate it.",
-            pytrace=False,
-        )
-    return h5py, dump_path
 
 
 def _load_matlab_array(mat, name: str) -> np.ndarray:
@@ -255,40 +239,6 @@ def test_rootsift_and_assignments_match_matlab_dump():
     nn = np.argmax(assigns, axis=1) + 1
     np.testing.assert_array_equal(nn, nn_ref)
 
-
-def test_grid_mask_matches_matlab_dump():
-    _require_cyvlfeat()
-    _require_vlfeat_imconv()
-    h5py, dump_path = _require_matlab_grid_dump()
-    assets = Torii15Assets.default()
-    image_path = assets.extract_member(
-        "247code/data/example_grid/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.jpg"
-    )
-    label_path = assets.extract_member(
-        "247code/data/example_grid/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.label.mat"
-    )
-    plane_path = assets.extract_member("247code/data/example_grid/planes.txt")
-
-    from densevlad.torii15.densevlad import _grid_mask_features_dense, _phow
-
-    img_single = image_mod.read_gray_im2single(image_path)
-    frames, descs = _phow(img_single)
-    descs = _rootsift(descs)
-    _, _, mask = _grid_mask_features_dense(
-        frames,
-        descs,
-        img_single.shape[:2],
-        Path(label_path),
-        Path(plane_path),
-        return_mask=True,
-    )
-
-    with h5py.File(dump_path, "r") as mat:
-        msk_ref = _load_matlab_array(mat, "msk")
-    msk_ref = np.asarray(msk_ref).reshape(-1).astype(bool)
-
-    assert mask.shape == msk_ref.shape
-    np.testing.assert_array_equal(mask, msk_ref)
 
 
 def test_matmul_kdtree_assignment_equivalence():

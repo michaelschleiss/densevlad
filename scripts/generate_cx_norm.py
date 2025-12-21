@@ -8,6 +8,8 @@ from pathlib import Path
 import h5py
 import numpy as np
 
+from densevlad.torii15 import Torii15Assets
+
 
 def _sha256_path(path: Path) -> str:
     digest = hashlib.sha256()
@@ -22,15 +24,7 @@ def _sha256_array(arr: np.ndarray) -> str:
 
 
 def _default_dump_path() -> Path:
-    return (
-        Path.home()
-        / "Library"
-        / "Caches"
-        / "densevlad"
-        / "torii15"
-        / "matlab_dump"
-        / "densevlad_dump.mat"
-    )
+    return Torii15Assets.default_cache_dir() / "matlab_dump" / "densevlad_dump.mat"
 
 
 def _default_out_path() -> Path:

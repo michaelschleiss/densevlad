@@ -21,3 +21,6 @@ build/
 
 # Original 247code package (downloaded)
 247code/
+
+# Repo-local assets (downloaded)
+assets/

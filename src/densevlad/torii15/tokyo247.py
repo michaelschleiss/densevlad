@@ -2,13 +2,28 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import csv
-import os
 from pathlib import Path
+import tarfile
+import urllib.request
+import zipfile
 
 import numpy as np
 
 from .assets import Torii15Assets
 from .matio import load_mat_v5
+
+TOKYO247_DBSTRUCT_URL = (
+    "https://raw.githubusercontent.com/devanshigarg01/pittsburghdata/main/tokyo247.mat"
+)
+TOKYO247_QUERY_ZIP_URLS = {
+    "subset": "https://data.ciirc.cvut.cz/public/projects/2015netVLAD/Tokyo247/queries/247query_subset_v2.zip",
+    "full": "https://data.ciirc.cvut.cz/public/projects/2015netVLAD/Tokyo247/queries/247query_v3.zip",
+}
+TOKYO247_DB_BASE_URL = (
+    "https://data.ciirc.cvut.cz/public/projects/2015netVLAD/Tokyo247/database_gsv_vga/"
+)
+TOKYO247_DB_TARS = [f"{idx:05d}.tar" for idx in range(3814, 3830)]
+TOKYO247_DB_TARS_MIN = ["03829.tar"]
 
 
 @dataclass(frozen=True)
@@ -21,24 +36,16 @@ class Tokyo247Paths:
     @classmethod
     def default(cls) -> "Tokyo247Paths":
         cache_dir = Torii15Assets.default_cache_dir()
-        root_env = os.environ.get("DVLAD_TOKYO247_ROOT")
-        root_dir = Path(root_env) if root_env else cache_dir / "tokyo247"
+        root_dir = cache_dir / "tokyo247"
+        db_dir = root_dir / "database_gsv_vga"
 
-        db_env = os.environ.get("DVLAD_TOKYO247_DB_DIR")
-        db_dir = Path(db_env) if db_env else root_dir / "database_gsv_vga"
-
-        query_env = os.environ.get("DVLAD_TOKYO247_QUERY_DIR")
-        if query_env:
-            query_dir = Path(query_env)
+        candidate = root_dir / "queries"
+        if candidate.is_dir():
+            query_dir = candidate
         else:
-            candidate = root_dir / "queries"
-            if candidate.is_dir():
-                query_dir = candidate
-            else:
-                query_dir = cache_dir / "247query_subset_v2" / "247query_subset_v2"
+            query_dir = cache_dir / "247query_subset_v2"
 
-        dbstruct_env = os.environ.get("DVLAD_TOKYO247_DBSTRUCT")
-        dbstruct_path = Path(dbstruct_env) if dbstruct_env else root_dir / "tokyo247.mat"
+        dbstruct_path = root_dir / "tokyo247.mat"
 
         return cls(
             root_dir=root_dir,
@@ -46,6 +53,137 @@ class Tokyo247Paths:
             query_dir=query_dir,
             dbstruct_path=dbstruct_path,
         )
+
+
+def _download_file(url: str, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".partial")
+    try:
+        with urllib.request.urlopen(url) as r, tmp.open("wb") as f:
+            while True:
+                chunk = r.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+        tmp.replace(dest)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _extract_zip(zip_path: Path, dest_dir: Path) -> None:
+    with zipfile.ZipFile(zip_path) as zf:
+        zf.extractall(dest_dir)
+
+
+def _extract_tar(tar_path: Path, dest_dir: Path) -> None:
+    with tarfile.open(tar_path) as tf:
+        tf.extractall(dest_dir)
+
+
+def _minimal_db_tars(cache_dir: Path) -> list[str]:
+    golden_list = cache_dir / "matlab_dump" / "tokyo247_golden_list.txt"
+    if golden_list.is_file():
+        prefixes = set()
+        for line in golden_list.read_text().splitlines():
+            if not line.strip():
+                continue
+            parts = line.split("\t")
+            if len(parts) != 2 or parts[0] != "db":
+                continue
+            rel = parts[1]
+            prefix = rel.split("/", 1)[0]
+            if prefix.isdigit() and len(prefix) == 5:
+                prefixes.add(prefix)
+        if prefixes:
+            return sorted(f"{p}.tar" for p in prefixes)
+    return TOKYO247_DB_TARS_MIN
+
+
+def ensure_tokyo247_assets(
+    *,
+    download: bool = False,
+    include_db: bool = True,
+    db_mode: str = "full",
+    query_mode: str = "subset",
+    verbose: bool = False,
+) -> Tokyo247Paths:
+    paths = Tokyo247Paths.default()
+    cache_dir = Torii15Assets.default_cache_dir()
+
+    if not paths.dbstruct_path.exists():
+        if not download:
+            raise FileNotFoundError(f"Missing tokyo247 dbStruct: {paths.dbstruct_path}")
+        if verbose:
+            print(f"Downloading dbStruct -> {paths.dbstruct_path}")
+        _download_file(TOKYO247_DBSTRUCT_URL, paths.dbstruct_path)
+
+    if query_mode not in ("subset", "full", "none"):
+        raise ValueError(f"Unknown query_mode: {query_mode}")
+    if query_mode != "none":
+        if query_mode == "subset":
+            query_root = cache_dir / "247query_subset_v2"
+            zip_name = "247query_subset_v2.zip"
+        else:
+            query_root = cache_dir / "queries"
+            zip_name = "247query_v3.zip"
+        if not query_root.is_dir():
+            if not download:
+                raise FileNotFoundError(f"Missing Tokyo247 queries: {query_root}")
+            zip_path = cache_dir / zip_name
+            if not zip_path.exists():
+                if verbose:
+                    print(f"Downloading queries ({query_mode}) -> {zip_path}")
+                _download_file(TOKYO247_QUERY_ZIP_URLS[query_mode], zip_path)
+            if verbose:
+                print(f"Extracting {zip_path} -> {cache_dir}")
+            _extract_zip(zip_path, cache_dir)
+            try:
+                zip_path.unlink()
+            except Exception:
+                pass
+            paths = Tokyo247Paths.default()
+            query_root = paths.query_dir
+            if not query_root.is_dir():
+                raise FileNotFoundError(
+                    "Tokyo247 queries extracted but expected directory is missing: "
+                    f"{query_root}"
+                )
+
+    if include_db:
+        if db_mode not in ("full", "minimal"):
+            raise ValueError(f"Unknown db_mode: {db_mode}")
+        if db_mode == "full":
+            db_tars = TOKYO247_DB_TARS
+        else:
+            db_tars = _minimal_db_tars(cache_dir)
+        if verbose:
+            if db_mode == "full":
+                print(f"DB tars (full): {db_tars[0]} .. {db_tars[-1]}")
+            else:
+                print(f"DB tars (minimal): {', '.join(db_tars)}")
+        paths.db_dir.mkdir(parents=True, exist_ok=True)
+        for name in db_tars:
+            tar_path = paths.db_dir / name
+            if not tar_path.exists():
+                if not download:
+                    raise FileNotFoundError(f"Missing Tokyo247 DB archive: {tar_path}")
+                if verbose:
+                    print(f"Downloading DB tar -> {tar_path}")
+                _download_file(f"{TOKYO247_DB_BASE_URL}{name}", tar_path)
+            extract_marker = paths.db_dir / name.replace(".tar", "")
+            if not extract_marker.exists():
+                if verbose:
+                    print(f"Extracting {tar_path} -> {paths.db_dir}")
+                _extract_tar(tar_path, paths.db_dir)
+            try:
+                tar_path.unlink()
+            except Exception:
+                pass
+
+    return paths
 
 
 @dataclass(frozen=True)

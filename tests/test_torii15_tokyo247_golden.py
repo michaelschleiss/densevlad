@@ -19,21 +19,15 @@ def _require_h5py():
         import h5py  # type: ignore[import-not-found]
     except Exception:
         pytest.fail(
-            "h5py is required for Tokyo247 golden parity tests. Install it and rerun.",
+            "SETUP REQUIRED: h5py is required for Tokyo247 golden parity tests.\n"
+            "Install it and rerun.",
             pytrace=False,
         )
     return h5py
 
 
 def _golden_paths() -> tuple[Path, Path]:
-    base = (
-        Path.home()
-        / "Library"
-        / "Caches"
-        / "densevlad"
-        / "torii15"
-        / "matlab_dump"
-    )
+    base = Torii15Assets.default_cache_dir() / "matlab_dump"
     return base / "tokyo247_golden.mat", base / "tokyo247_golden_list.txt"
 
 
@@ -42,9 +36,11 @@ def _require_golden_assets() -> tuple[object, Path, Path]:
     mat_path, list_path = _golden_paths()
     if not mat_path.exists() or not list_path.exists():
         pytest.fail(
-            "Tokyo247 golden references not found. Run "
-            "scripts/matlab/dump_tokyo247_golden.m to generate:\n"
-            f"  {mat_path}\n  {list_path}",
+            "SETUP REQUIRED: Tokyo247 golden references not found.\n"
+            f"  Expected: {mat_path}\n"
+            f"            {list_path}\n"
+            "Generate them with:\n"
+            "  matlab -batch \"run('scripts/matlab/dump_densevlad_all.m'); dump_densevlad_all('tokyo247')\"",
             pytrace=False,
         )
     return h5py, mat_path, list_path
@@ -104,8 +100,9 @@ def test_tokyo247_golden_vectors_match_matlab():
             use_imdown = bool(_load_matlab_scalar(mat, "use_imdown"))
         except KeyError:
             pytest.fail(
-                "tokyo247_golden.mat missing max_dim/use_imdown. "
-                "Regenerate with scripts/matlab/dump_tokyo247_golden.m.",
+                "SETUP REQUIRED: tokyo247_golden.mat missing max_dim/use_imdown.\n"
+                "Regenerate with:\n"
+                "  matlab -batch \"run('scripts/matlab/dump_densevlad_all.m'); dump_densevlad_all('tokyo247')\"",
                 pytrace=False,
             )
 
