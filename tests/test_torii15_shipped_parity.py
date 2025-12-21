@@ -8,8 +8,9 @@ from scipy.io import loadmat
 
 from densevlad.torii15 import Torii15Assets
 
-# Requires MATLAB dumps in ./assets/torii15/matlab_dump and shipped VLAD vectors
-# under ./247code/data. Uses h5py (v7.3) and scipy.io.loadmat (v5) readers.
+# Requires MATLAB dumps in ./assets/torii15/matlab_dump (generated with MATLAB)
+# and shipped VLAD vectors under ./247code/data. Uses h5py (v7.3) and
+# scipy.io.loadmat (v5) readers.
 
 
 def _decode_matlab_str(arr: np.ndarray) -> str:
@@ -68,7 +69,10 @@ def test_shipped_vlad_matches_matlab_dumps_strict():
     assets_dir = Torii15Assets.default_cache_dir()
     dump_gsv = assets_dir / "matlab_dump" / "densevlad_dump.mat"
     if not dump_gsv.exists():
-        pytest.fail("Missing MATLAB dump; run dump_densevlad_all('densevlad')", pytrace=False)
+        pytest.fail(
+            "Missing MATLAB dump; generate it with MATLAB via dump_densevlad_all('densevlad')",
+            pytrace=False,
+        )
 
     vlad_gsv, imfn_gsv = _load_matlab_vlad(dump_gsv, "vlad")
     vlad_gsv_030, imfn_gsv_030 = _load_matlab_vlad(dump_gsv, "vlad_030")
