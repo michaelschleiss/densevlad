@@ -73,7 +73,7 @@ def test_shipped_vlad_matches_matlab_dumps_strict():
     if missing:
         pytest.fail(
             "Missing MATLAB dumps; generate them with MATLAB via "
-            "dump_densevlad_intermediate('densevlad') and dump_densevlad_all_blackbox('densevlad')",
+            "dump_densevlad_intermediate and dump_densevlad_all_blackbox",
             pytrace=False,
         )
 

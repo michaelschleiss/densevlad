@@ -1,25 +1,10 @@
-function dump_densevlad_all_blackbox(mode, varargin)
+function dump_densevlad_all_blackbox(varargin)
 %DUMP_DENSEVLAD_ALL_BLACKBOX Faithful DenseVLAD MATLAB dumps (blackbox).
-%  dump_densevlad_all_blackbox('densevlad') writes densevlad_dump_blackbox.mat
-%  dump_densevlad_all_blackbox('tokyo247', ...) writes Tokyo247 golden references
-%  dump_densevlad_all_blackbox('all') runs all of the above.
+%  dump_densevlad_all_blackbox(...) writes densevlad_dump_blackbox.mat and
+%  Tokyo247 golden references.
 
-if nargin < 1 || isempty(mode)
-    mode = 'all';
-end
-mode = lower(mode);
-
-switch mode
-    case 'densevlad'
-        run_densevlad(varargin{:});
-    case 'tokyo247'
-        run_tokyo247_golden(varargin{:});
-    case 'all'
-        run_densevlad(varargin{:});
-        run_tokyo247_golden(varargin{:});
-    otherwise
-        error('Unknown mode: %s', mode);
-end
+run_densevlad(varargin{:});
+run_tokyo247_golden(varargin{:});
 end
 
 function run_densevlad(out_dir)

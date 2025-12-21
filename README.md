@@ -167,11 +167,11 @@ source .pixi/vlfeat_env.sh
 3) **Generate MATLAB dumps**
 - DenseVLAD baseline (example_gsv):
 ```
-/Applications/MATLAB_R2025b.app/bin/matlab -batch "run('scripts/dump_densevlad_intermediate.m'); dump_densevlad_intermediate('densevlad')"
+/Applications/MATLAB_R2025b.app/bin/matlab -batch "run('scripts/dump_densevlad_intermediate.m'); dump_densevlad_intermediate"
 ```
 - DenseVLAD baseline (blackbox):
 ```
-/Applications/MATLAB_R2025b.app/bin/matlab -batch "run('scripts/dump_densevlad_all_blackbox.m'); dump_densevlad_all_blackbox('densevlad')"
+/Applications/MATLAB_R2025b.app/bin/matlab -batch "run('scripts/dump_densevlad_all_blackbox.m'); dump_densevlad_all_blackbox"
 ```
 - Outputs:
   - `./assets/torii15/matlab_dump/densevlad_dump_intermediate.mat`

@@ -105,8 +105,8 @@ def _collect_setup_issues() -> tuple[list[str], dict[str, bool]]:
             "Missing MATLAB assets:\n"
             f"{missing_lines}\n"
             "Generate with:\n"
-            "  matlab -batch \"run('scripts/dump_densevlad_intermediate.m'); dump_densevlad_intermediate('all')\"\n"
-            "  matlab -batch \"run('scripts/dump_densevlad_all_blackbox.m'); dump_densevlad_all_blackbox('densevlad')\""
+            "  matlab -batch \"run('scripts/dump_densevlad_intermediate.m'); dump_densevlad_intermediate\"\n"
+            "  matlab -batch \"run('scripts/dump_densevlad_all_blackbox.m'); dump_densevlad_all_blackbox\""
         )
 
     return issues, missing

@@ -43,7 +43,7 @@ def _require_matlab_dump(name: str) -> tuple[object, Path]:
             "SETUP REQUIRED: MATLAB dump not found.\n"
             f"  Expected: {dump_path}\n"
             "Generate it with:\n"
-            "  matlab -batch \"run('scripts/dump_densevlad_intermediate.m'); dump_densevlad_intermediate('densevlad')\"",
+            "  matlab -batch \"run('scripts/dump_densevlad_intermediate.m'); dump_densevlad_intermediate\"",
             pytrace=False,
         )
     return h5py, dump_path

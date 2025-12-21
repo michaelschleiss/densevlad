@@ -1,25 +1,10 @@
-function dump_densevlad_intermediate(mode, varargin)
+function dump_densevlad_intermediate(varargin)
 %DUMP_DENSEVLAD_INTERMEDIATE Run DenseVLAD MATLAB dumps (with intermediates).
-%  dump_densevlad_intermediate('densevlad') writes densevlad_dump_intermediate.mat
-%  dump_densevlad_intermediate('tokyo247', ...) writes Tokyo247 golden references
-%  dump_densevlad_intermediate('all') runs all of the above.
+%  dump_densevlad_intermediate(...) writes densevlad_dump_intermediate.mat and
+%  Tokyo247 golden references.
 
-if nargin < 1 || isempty(mode)
-    mode = 'all';
-end
-mode = lower(mode);
-
-switch mode
-    case 'densevlad'
-        run_densevlad(varargin{:});
-    case 'tokyo247'
-        run_tokyo247_golden(varargin{:});
-    case 'all'
-        run_densevlad(varargin{:});
-        run_tokyo247_golden(varargin{:});
-    otherwise
-        error('Unknown mode: %s', mode);
-end
+run_densevlad(varargin{:});
+run_tokyo247_golden(varargin{:});
 end
 
 function run_densevlad(out_dir)
