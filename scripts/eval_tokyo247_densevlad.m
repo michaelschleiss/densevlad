@@ -58,6 +58,10 @@ addpath(fullfile(code_root, 'code'));
 addpath(fileparts(mfilename('fullpath')));
 run(fullfile(code_root, 'thirdparty', 'vlfeat-0.9.20', 'toolbox', 'vl_setup'));
 
+if exist('im2single', 'file') ~= 2
+    error('Image Processing Toolbox required (missing im2single).');
+end
+
 dictfn = fullfile(code_root, 'data', 'dnscnt_RDSIFT_K128.mat');
 pcafn = fullfile(code_root, 'data', 'dnscnt_RDSIFT_K128_vlad_pcaproj.mat');
 

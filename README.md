@@ -206,9 +206,8 @@ To run the baseline in MATLAB (without Image Processing Toolbox), use:
   "addpath('scripts'); eval_tokyo247_densevlad('limit_db',10,'limit_q',5,'force',true)"
 ```
 
-This uses `scripts/im2single.m` as a fallback so the code runs
-without the toolbox. Remove the limits for a full run (note: this is
-slow; DenseVLAD is ~30s/image on CPU in MATLAB).
+This requires the Image Processing Toolbox (`im2single`). Remove the limits
+for a full run (note: this is slow; DenseVLAD is ~30s/image on CPU in MATLAB).
 
 By default the MATLAB evaluator resizes images to max dimension 640 and
 does not apply `vl_imdown`. You can override these with:
