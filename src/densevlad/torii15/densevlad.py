@@ -526,13 +526,13 @@ def _vl_vlad_hard(
 
 def _phow_workers() -> int:
     try:
-        return max(0, int(os.environ.get("DVLAD_PHOW_WORKERS", "4")))
+        return max(0, int(os.environ.get("DVLAD_PHOW_WORKERS", "1")))
     except ValueError:
-        return 4
+        return 1
 
 
 def _phow_backend() -> str:
-    return os.environ.get("DVLAD_PHOW_BACKEND", "thread").lower()
+    return os.environ.get("DVLAD_PHOW_BACKEND", "serial").lower()
 
 
 _PHOW_PROCESS_POOL: ProcessPoolExecutor | None = None
@@ -612,7 +612,9 @@ def _phow_descs(im: np.ndarray) -> np.ndarray:
     workers = min(_phow_workers(), len(sizes))
     backend = _phow_backend()
 
-    if workers > 1 and backend == "process":
+    if backend == "serial" or workers <= 1:
+        descs_all = [_phow_scale(im, size, max_size, dsift) for size in sizes]
+    elif backend == "process":
         pool = _get_phow_process_pool(workers)
         descs_all = list(
             pool.map(
@@ -620,15 +622,13 @@ def _phow_descs(im: np.ndarray) -> np.ndarray:
                 [(im, size, max_size) for size in sizes],
             )
         )
-    elif workers > 1:
+    else:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [
                 executor.submit(_phow_scale, im, size, max_size, dsift)
                 for size in sizes
             ]
             descs_all = [f.result() for f in futures]
-    else:
-        descs_all = [_phow_scale(im, size, max_size, dsift) for size in sizes]
 
     return np.vstack(descs_all)
 
@@ -646,7 +646,16 @@ def _phow(im: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     workers = min(_phow_workers(), len(sizes))
     backend = _phow_backend()
 
-    if workers > 1 and backend == "process":
+    if backend == "serial" or workers <= 1:
+        frames_all = []
+        descs_all = []
+        for size in sizes:
+            frames, descs = _phow_scale(
+                im, size, max_size, dsift, return_frames=True
+            )
+            frames_all.append(frames)
+            descs_all.append(descs)
+    elif backend == "process":
         pool = _get_phow_process_pool(workers)
         results = list(
             pool.map(
@@ -656,7 +665,7 @@ def _phow(im: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         )
         frames_all = [r[0] for r in results]
         descs_all = [r[1] for r in results]
-    elif workers > 1:
+    else:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = [
                 executor.submit(
@@ -667,15 +676,6 @@ def _phow(im: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             results = [f.result() for f in futures]
         frames_all = [r[0] for r in results]
         descs_all = [r[1] for r in results]
-    else:
-        frames_all = []
-        descs_all = []
-        for size in sizes:
-            frames, descs = _phow_scale(
-                im, size, max_size, dsift, return_frames=True
-            )
-            frames_all.append(frames)
-            descs_all.append(descs)
 
     return np.vstack(frames_all), np.vstack(descs_all)
 
