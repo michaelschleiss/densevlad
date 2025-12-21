@@ -1,8 +1,8 @@
-function dump_densevlad_all(mode, varargin)
-%DUMP_DENSEVLAD_ALL Run DenseVLAD MATLAB dumps.
-%  dump_densevlad_all('densevlad') writes densevlad_dump_intermediate.mat
-%  dump_densevlad_all('tokyo247', ...) writes Tokyo247 golden references
-%  dump_densevlad_all('all') runs all of the above.
+function dump_densevlad_all_intermediate(mode, varargin)
+%DUMP_DENSEVLAD_ALL_INTERMEDIATE Run DenseVLAD MATLAB dumps (with intermediates).
+%  dump_densevlad_all_intermediate('densevlad') writes densevlad_dump_intermediate.mat
+%  dump_densevlad_all_intermediate('tokyo247', ...) writes Tokyo247 golden references
+%  dump_densevlad_all_intermediate('all') runs all of the above.
 
 if nargin < 1 || isempty(mode)
     mode = 'all';

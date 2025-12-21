@@ -40,7 +40,7 @@ def _require_golden_assets() -> tuple[object, Path, Path]:
             f"  Expected: {mat_path}\n"
             f"            {list_path}\n"
             "Generate them with:\n"
-            "  matlab -batch \"run('scripts/dump_densevlad_all.m'); dump_densevlad_all('tokyo247')\"",
+            "  matlab -batch \"run('scripts/dump_densevlad_all_intermediate.m'); dump_densevlad_all_intermediate('tokyo247')\"",
             pytrace=False,
         )
     return h5py, mat_path, list_path
@@ -102,7 +102,7 @@ def test_tokyo247_golden_vectors_match_matlab():
             pytest.fail(
                 "SETUP REQUIRED: tokyo247_golden.mat missing max_dim/use_imdown.\n"
                 "Regenerate with:\n"
-                "  matlab -batch \"run('scripts/dump_densevlad_all.m'); dump_densevlad_all('tokyo247')\"",
+                "  matlab -batch \"run('scripts/dump_densevlad_all_intermediate.m'); dump_densevlad_all_intermediate('tokyo247')\"",
                 pytrace=False,
             )
 

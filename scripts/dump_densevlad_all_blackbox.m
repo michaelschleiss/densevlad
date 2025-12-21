@@ -203,7 +203,7 @@ end
 
 function root_dir = ensure_root_dir()
 this_dir = fileparts(mfilename('fullpath'));
-repo_root = fullfile(this_dir, '..');
+repo_root = fileparts(this_dir);  % parent of scripts/
 local_root = fullfile(repo_root, '247code');
 root_dir = local_root;
 if ~exist(root_dir, 'dir')
