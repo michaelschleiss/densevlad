@@ -33,6 +33,10 @@ def assert_cosine_similarity_rows(
     num = np.einsum("ij,ij->i", a, b)
     denom = np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1)
     cos = np.divide(num, denom, out=np.zeros_like(num), where=denom != 0)
+    # Treat rows that are all-zero in both arrays as perfect matches.
+    zero_rows = (np.linalg.norm(a, axis=1) == 0) & (np.linalg.norm(b, axis=1) == 0)
+    if np.any(zero_rows):
+        cos[zero_rows] = 1.0
     min_cosine = float(np.min(cos)) if cos.size else float("nan")
     name = f"{label}: " if label else ""
     assert min_cosine >= min_cos, f"{name}min cosine {min_cosine:.6f} < {min_cos}"

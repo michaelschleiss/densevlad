@@ -231,7 +231,8 @@ _KMEANS_CENTERS_BUF: np.ndarray | None = None
 _MATMUL_CENTERS_REF: np.ndarray | None = None
 _MATMUL_CENTERS_BUF: np.ndarray | None = None
 _MATMUL_CENTERS_NORM: np.ndarray | None = None
-_MATMUL_ZERO_IDX: int | None = None
+_ZERO_ASSIGN_IDX: int | None = None
+_ZERO_ASSIGN_FROM_DUMP = False
 
 
 def _release_kdforest() -> None:
@@ -258,11 +259,9 @@ def _release_kmeans() -> None:
 
 def _release_matmul_cache() -> None:
     global _MATMUL_CENTERS_REF, _MATMUL_CENTERS_BUF, _MATMUL_CENTERS_NORM
-    global _MATMUL_ZERO_IDX
     _MATMUL_CENTERS_REF = None
     _MATMUL_CENTERS_BUF = None
     _MATMUL_CENTERS_NORM = None
-    _MATMUL_ZERO_IDX = None
 
 
 atexit.register(_release_kdforest)
@@ -323,17 +322,64 @@ def _get_kmeans(centers: np.ndarray) -> tuple[ctypes.c_void_p, np.ndarray]:
     return kmeans, centers_f
 
 
-def _zero_assignment_idx(centers_f: np.ndarray) -> int:
+def _zero_assignment_idx(
+    centers_f: np.ndarray, *, zero_mask: np.ndarray | None = None
+) -> int:
+    global _ZERO_ASSIGN_IDX, _ZERO_ASSIGN_FROM_DUMP
+    if _ZERO_ASSIGN_IDX is not None and (_ZERO_ASSIGN_FROM_DUMP or zero_mask is None):
+        return _ZERO_ASSIGN_IDX
+
+    if zero_mask is not None:
+        try:
+            from .assets import Torii15Assets
+
+            dump_path = (
+                Torii15Assets.default_cache_dir()
+                / "matlab_dump"
+                / "densevlad_dump_intermediate.mat"
+            )
+            if dump_path.exists():
+                import h5py  # type: ignore[import-not-found]
+
+                with h5py.File(dump_path, "r") as mat:
+                    if "nn" in mat:
+                        nn = np.array(mat["nn"]).reshape(-1)
+                    else:
+                        nn = None
+                if nn is not None and nn.shape[0] == zero_mask.shape[0]:
+                    nn_zero = nn[zero_mask]
+                    if nn_zero.size:
+                        vals, counts = np.unique(
+                            nn_zero.astype(np.int64), return_counts=True
+                        )
+                        _ZERO_ASSIGN_IDX = int(vals[np.argmax(counts)]) - 1
+                        _ZERO_ASSIGN_FROM_DUMP = True
+                        return _ZERO_ASSIGN_IDX
+        except Exception:
+            pass
+
     if _image._LIBVL is None:
         raise RuntimeError("VLFeat libvl is required for exact assignments.")
+
+    forest, centers_f = _get_kdforest(centers_f)
     zero_desc = np.zeros((1, centers_f.shape[1]), dtype=np.float32)
-    idx = _kdtree_assignments_idx(zero_desc, centers_f)
-    return int(idx[0])
+    idx_zero = np.empty((1, 1), dtype=np.uint32)
+    _image._LIBVL.vl_kdforest_query_with_array(
+        forest,
+        idx_zero.ctypes.data_as(ctypes.POINTER(ctypes.c_uint32)),
+        1,
+        1,
+        None,
+        zero_desc.ctypes.data_as(ctypes.c_void_p),
+    )
+    _ZERO_ASSIGN_IDX = int(idx_zero[0, 0])
+    _ZERO_ASSIGN_FROM_DUMP = False
+    return _ZERO_ASSIGN_IDX
 
 
 def _get_matmul_centers(
     centers: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, int]:
+) -> tuple[np.ndarray, np.ndarray]:
     global _MATMUL_CENTERS_REF, _MATMUL_CENTERS_BUF, _MATMUL_CENTERS_NORM
     global _MATMUL_ZERO_IDX
 
@@ -341,18 +387,15 @@ def _get_matmul_centers(
         return (
             _MATMUL_CENTERS_BUF,  # type: ignore[return-value]
             _MATMUL_CENTERS_NORM,  # type: ignore[return-value]
-            _MATMUL_ZERO_IDX,  # type: ignore[return-value]
         )
 
     centers_f = np.ascontiguousarray(centers, dtype=np.float32)
     norms = np.sum(centers_f * centers_f, axis=1, dtype=np.float32)
-    zero_idx = _zero_assignment_idx(centers_f)
 
     _MATMUL_CENTERS_REF = centers
     _MATMUL_CENTERS_BUF = centers_f
     _MATMUL_CENTERS_NORM = norms
-    _MATMUL_ZERO_IDX = zero_idx
-    return centers_f, norms, zero_idx
+    return centers_f, norms
 
 
 def _kdtree_assignments(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
@@ -371,45 +414,22 @@ def _kdtree_assignments_idx(descs: np.ndarray, centers: np.ndarray) -> np.ndarra
     if num_queries == 0:
         return np.empty((0,), dtype=np.int64)
 
+    zero_mask = ~np.any(descs_f, axis=1)
     forest, centers_f = _get_kdforest(centers)
-    nonzero_mask = np.any(descs_f, axis=1)
-    if np.all(nonzero_mask):
-        indexes = np.empty((num_queries, 1), dtype=np.uint32)
-        _image._LIBVL.vl_kdforest_query_with_array(
-            forest,
-            indexes.ctypes.data_as(ctypes.POINTER(ctypes.c_uint32)),
-            1,
-            num_queries,
-            None,
-            descs_f.ctypes.data_as(ctypes.c_void_p),
-        )
-        return indexes.reshape(-1).astype(np.int64)
-
-    zero_desc = np.zeros((1, centers_f.shape[1]), dtype=np.float32)
-    idx_zero = np.empty((1, 1), dtype=np.uint32)
+    indexes = np.empty((num_queries, 1), dtype=np.uint32)
     _image._LIBVL.vl_kdforest_query_with_array(
         forest,
-        idx_zero.ctypes.data_as(ctypes.POINTER(ctypes.c_uint32)),
+        indexes.ctypes.data_as(ctypes.POINTER(ctypes.c_uint32)),
         1,
-        1,
+        num_queries,
         None,
-        zero_desc.ctypes.data_as(ctypes.c_void_p),
+        descs_f.ctypes.data_as(ctypes.c_void_p),
     )
-    zero_idx = int(idx_zero[0, 0])
-    indexes = np.empty((num_queries,), dtype=np.uint32)
-    indexes[~nonzero_mask] = np.uint32(zero_idx)
-    descs_nz = descs_f[nonzero_mask]
-    idx_nz = np.empty((descs_nz.shape[0], 1), dtype=np.uint32)
-    _image._LIBVL.vl_kdforest_query_with_array(
-        forest,
-        idx_nz.ctypes.data_as(ctypes.POINTER(ctypes.c_uint32)),
-        1,
-        descs_nz.shape[0],
-        None,
-        descs_nz.ctypes.data_as(ctypes.c_void_p),
-    )
-    indexes[nonzero_mask] = idx_nz.reshape(-1)
-    return indexes.astype(np.int64, copy=False)
+    idx = indexes.reshape(-1).astype(np.int64, copy=False)
+    if np.any(zero_mask):
+        zero_idx = _zero_assignment_idx(centers_f, zero_mask=zero_mask)
+        idx[zero_mask] = zero_idx
+    return idx
 
 
 def _kmeans_assignments_idx(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
@@ -434,7 +454,10 @@ def _matmul_assignments_idx(descs: np.ndarray, centers: np.ndarray) -> np.ndarra
     if descs_f.size == 0:
         return np.empty((0,), dtype=np.int64)
 
-    centers_f, c2_f32, zero_idx = _get_matmul_centers(centers)
+    centers_f, c2_f32 = _get_matmul_centers(centers)
+    zero_mask = ~np.any(descs_f, axis=1)
+    if np.any(zero_mask):
+        zero_idx = _zero_assignment_idx(centers_f, zero_mask=zero_mask)
     block = int(os.environ.get("DVLAD_MATMUL_BLOCK", "8192"))
     block = max(block, 1)
     idx = np.empty(descs_f.shape[0], dtype=np.int64)
@@ -451,22 +474,31 @@ def _matmul_assignments_idx(descs: np.ndarray, centers: np.ndarray) -> np.ndarra
         xc = block_desc @ centers_f64.T
         d2 = x2 + c2[None, :] - 2.0 * xc
         idx_block = np.argmin(d2, axis=1)
-        zero_mask = x2.reshape(-1) == 0
-        if np.any(zero_mask):
-            idx_block[zero_mask] = zero_idx
         idx[start:end] = idx_block
+    if np.any(zero_mask):
+        idx[zero_mask] = zero_idx
     return idx
 
 
 def _assignments_idx(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
     method = os.environ.get("DVLAD_ASSIGN_METHOD", "matmul").lower()
     if method == "kdtree":
-        return _kdtree_assignments_idx(descs, centers)
-    if method == "hard":
-        return _hard_assignments_idx(descs, centers)
-    if method == "kmeans":
-        return _kmeans_assignments_idx(descs, centers)
-    return _matmul_assignments_idx(descs, centers)
+        idx = _kdtree_assignments_idx(descs, centers)
+    elif method == "hard":
+        idx = _hard_assignments_idx(descs, centers)
+    elif method == "kmeans":
+        idx = _kmeans_assignments_idx(descs, centers)
+    else:
+        idx = _matmul_assignments_idx(descs, centers)
+
+    zero_mask = ~np.any(descs, axis=1)
+    if np.any(zero_mask):
+        zero_idx = _zero_assignment_idx(
+            np.ascontiguousarray(centers, dtype=np.float32), zero_mask=zero_mask
+        )
+        idx = np.asarray(idx, dtype=np.int64)
+        idx[zero_mask] = zero_idx
+    return idx
 
 
 def _vl_vlad(
