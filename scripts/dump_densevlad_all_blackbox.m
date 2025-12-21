@@ -221,7 +221,7 @@ end
 
 function cache_dir = default_cache_dir()
 this_dir = fileparts(mfilename('fullpath'));
-repo_root = fullfile(this_dir, '..');
+repo_root = fileparts(this_dir);  % parent of scripts/
 cache_dir = fullfile(repo_root, 'assets', 'torii15');
 end
 
