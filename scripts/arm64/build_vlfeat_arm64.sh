@@ -78,5 +78,3 @@ fi
 echo "libvl.dylib: ${VLFEAT_SRC}/bin/maci64/libvl.dylib"
 echo "Env file: ${ENV_FILE}"
 echo ""
-echo "To install cyvlfeat via pixi:"
-echo "  pixi run install-cyvlfeat-arm64"
