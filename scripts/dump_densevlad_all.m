@@ -1,6 +1,6 @@
 function dump_densevlad_all(mode, varargin)
 %DUMP_DENSEVLAD_ALL Run DenseVLAD MATLAB dumps.
-%  dump_densevlad_all('densevlad') writes densevlad_dump.mat
+%  dump_densevlad_all('densevlad') writes densevlad_dump_intermediate.mat
 %  dump_densevlad_all('tokyo247', ...) writes Tokyo247 golden references
 %  dump_densevlad_all('all') runs all of the above.
 
@@ -136,7 +136,7 @@ vlad_proj = single(vlad_proj(:, 1:vladdim)');
 vlad_wht = diag(1 ./ sqrt(vlad_lambda(1:vladdim)));
 v = single(yael_vecs_normalize(vlad_wht * (vlad_proj * vlad)));
 
-out_path = fullfile(out_dir, 'densevlad_dump.mat');
+out_path = fullfile(out_dir, 'densevlad_dump_intermediate.mat');
 save(out_path, ...
     'imfn', 'imfn_030', 'dictfn', 'pcafn', ...
     'img_gray', 'img_down', 'img_single', ...

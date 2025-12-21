@@ -67,31 +67,55 @@ def _shipped_vlad_paths() -> list[Path]:
 
 def test_shipped_vlad_matches_matlab_dumps_strict():
     assets_dir = Torii15Assets.default_cache_dir()
-    dump_gsv = assets_dir / "matlab_dump" / "densevlad_dump.mat"
-    if not dump_gsv.exists():
+    dump_intermediate = assets_dir / "matlab_dump" / "densevlad_dump_intermediate.mat"
+    dump_blackbox = assets_dir / "matlab_dump" / "densevlad_dump_blackbox.mat"
+    missing = [p for p in (dump_intermediate, dump_blackbox) if not p.exists()]
+    if missing:
         pytest.fail(
-            "Missing MATLAB dump; generate it with MATLAB via dump_densevlad_all('densevlad')",
+            "Missing MATLAB dumps; generate them with MATLAB via "
+            "dump_densevlad_all('densevlad') and dump_densevlad_all_blackbox('densevlad')",
             pytrace=False,
         )
 
-    vlad_gsv, imfn_gsv = _load_matlab_vlad(dump_gsv, "vlad")
-    vlad_gsv_030, imfn_gsv_030 = _load_matlab_vlad(dump_gsv, "vlad_030")
-    im_gsv = Path(imfn_gsv).name
-    im_gsv_030 = Path(imfn_gsv_030).name
+    vlad_intermediate, imfn_intermediate = _load_matlab_vlad(dump_intermediate, "vlad")
+    vlad_intermediate_030, imfn_intermediate_030 = _load_matlab_vlad(
+        dump_intermediate, "vlad_030"
+    )
+    vlad_blackbox, imfn_blackbox = _load_matlab_vlad(dump_blackbox, "vlad")
+    vlad_blackbox_030, imfn_blackbox_030 = _load_matlab_vlad(
+        dump_blackbox, "vlad_030"
+    )
+    im_gsv = Path(imfn_intermediate).name
+    im_gsv_030 = Path(imfn_intermediate_030).name
 
     shipped = _shipped_vlad_paths()
     if not shipped:
         pytest.fail("No shipped .dict_grid.dnsvlad.mat files found under 247code/data", pytrace=False)
 
     errors = []
+    if imfn_intermediate != imfn_blackbox or imfn_intermediate_030 != imfn_blackbox_030:
+        errors.append(
+            "MATLAB dumps disagree on input image paths: "
+            f"intermediate={imfn_intermediate},{imfn_intermediate_030} "
+            f"blackbox={imfn_blackbox},{imfn_blackbox_030}"
+        )
+    if not np.array_equal(vlad_intermediate, vlad_blackbox):
+        metrics = _diff_metrics(vlad_intermediate, vlad_blackbox)
+        errors.append(f"Intermediate vs blackbox mismatch (gsv): {metrics}")
+    if not np.array_equal(vlad_intermediate_030, vlad_blackbox_030):
+        metrics = _diff_metrics(vlad_intermediate_030, vlad_blackbox_030)
+        errors.append(f"Intermediate vs blackbox mismatch (gsv_030): {metrics}")
+
     for mat_path in shipped:
         shipped_vlad = _load_shipped_vlad(mat_path)
         image_name = mat_path.name.replace(".dict_grid.dnsvlad.mat", ".jpg")
         if "example_gsv" in mat_path.parts:
             if image_name == im_gsv:
-                ref = vlad_gsv
+                ref_intermediate = vlad_intermediate
+                ref_blackbox = vlad_blackbox
             elif image_name == im_gsv_030:
-                ref = vlad_gsv_030
+                ref_intermediate = vlad_intermediate_030
+                ref_blackbox = vlad_blackbox_030
             else:
                 errors.append(
                     f"No MATLAB dump for shipped GSV image {image_name}; "
@@ -102,8 +126,11 @@ def test_shipped_vlad_matches_matlab_dumps_strict():
             errors.append(f"Unknown shipped vlad location: {mat_path}")
             continue
 
-        if not np.array_equal(shipped_vlad, ref):
-            metrics = _diff_metrics(shipped_vlad, ref)
-            errors.append(f"Mismatch for {mat_path}: {metrics}")
+        if not np.array_equal(shipped_vlad, ref_intermediate):
+            metrics = _diff_metrics(shipped_vlad, ref_intermediate)
+            errors.append(f"Shipped vs intermediate mismatch for {mat_path}: {metrics}")
+        if not np.array_equal(shipped_vlad, ref_blackbox):
+            metrics = _diff_metrics(shipped_vlad, ref_blackbox)
+            errors.append(f"Shipped vs blackbox mismatch for {mat_path}: {metrics}")
 
     assert not errors, "\n".join(errors)

@@ -1,6 +1,6 @@
 function dump_densevlad_all_blackbox(mode, varargin)
 %DUMP_DENSEVLAD_ALL_BLACKBOX Faithful DenseVLAD MATLAB dumps (blackbox).
-%  dump_densevlad_all_blackbox('densevlad') writes densevlad_dump.mat
+%  dump_densevlad_all_blackbox('densevlad') writes densevlad_dump_blackbox.mat
 %  dump_densevlad_all_blackbox('tokyo247', ...) writes Tokyo247 golden references
 %  dump_densevlad_all_blackbox('all') runs all of the above.
 
@@ -51,7 +51,7 @@ vlad_proj = single(vlad_proj(:, 1:vladdim)');
 vlad_wht = diag(1 ./ sqrt(vlad_lambda(1:vladdim)));
 v = single(yael_vecs_normalize(vlad_wht * (vlad_proj * vlad)));
 
-out_path = fullfile(out_dir, 'densevlad_dump.mat');
+out_path = fullfile(out_dir, 'densevlad_dump_blackbox.mat');
 save(out_path, ...
     'imfn', 'imfn_030', 'dictfn', 'pcafn', ...
     'vlad', 'vlad_030', 'v', ...

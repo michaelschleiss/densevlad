@@ -81,7 +81,7 @@ def _require_libvl():
 def test_torii15_pre_pca_vlad_matches_reference():
     _require_cyvlfeat()
     _require_libvl()
-    h5py, dump_path = _require_matlab_dump("densevlad_dump.mat")
+    h5py, dump_path = _require_matlab_dump("densevlad_dump_intermediate.mat")
     assets = Torii15Assets.default()
     image_path = assets.extract_member(
         "247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.jpg"

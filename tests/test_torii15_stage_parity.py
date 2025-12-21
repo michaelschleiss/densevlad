@@ -22,7 +22,11 @@ _VLFEAT_SETUP_HINT = (
 
 
 def _matlab_dump_path() -> Path:
-    return Torii15Assets.default_cache_dir() / "matlab_dump" / "densevlad_dump.mat"
+    return (
+        Torii15Assets.default_cache_dir()
+        / "matlab_dump"
+        / "densevlad_dump_intermediate.mat"
+    )
 
 
 def _require_h5py():

@@ -106,7 +106,7 @@ def load_torii15_vocab(vocab_mat_path: str | Path) -> Torii15Vocab:
         dump_path = (
             Torii15Assets.default_cache_dir()
             / "matlab_dump"
-            / "densevlad_dump.mat"
+            / "densevlad_dump_intermediate.mat"
         )
     except Exception:
         dump_path = None

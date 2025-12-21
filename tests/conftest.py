@@ -89,10 +89,15 @@ def _collect_setup_issues() -> tuple[list[str], dict[str, bool]]:
         / "torii15"
         / "matlab_dump"
     )
-    densevlad_dump = base / "densevlad_dump.mat"
+    densevlad_dump = base / "densevlad_dump_intermediate.mat"
+    densevlad_blackbox = base / "densevlad_dump_blackbox.mat"
     tokyo_mat = base / "tokyo247_golden.mat"
     tokyo_list = base / "tokyo247_golden_list.txt"
-    missing_dumps = [p for p in (densevlad_dump, tokyo_mat, tokyo_list) if not p.exists()]
+    missing_dumps = [
+        p
+        for p in (densevlad_dump, densevlad_blackbox, tokyo_mat, tokyo_list)
+        if not p.exists()
+    ]
     if missing_dumps:
         missing["matlab"] = True
         missing_lines = "\n".join(f"  {p}" for p in missing_dumps)
@@ -100,7 +105,8 @@ def _collect_setup_issues() -> tuple[list[str], dict[str, bool]]:
             "Missing MATLAB assets:\n"
             f"{missing_lines}\n"
             "Generate with:\n"
-            "  matlab -batch \"run('scripts/dump_densevlad_all.m'); dump_densevlad_all('all')\""
+            "  matlab -batch \"run('scripts/dump_densevlad_all.m'); dump_densevlad_all('all')\"\n"
+            "  matlab -batch \"run('scripts/dump_densevlad_all_blackbox.m'); dump_densevlad_all_blackbox('densevlad')\""
         )
 
     return issues, missing
