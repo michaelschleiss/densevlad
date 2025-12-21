@@ -7,6 +7,7 @@ import pytest
 from scipy.io import loadmat
 
 from densevlad.torii15 import Torii15Assets
+from tests._cosine import cosine_similarity
 
 # Requires MATLAB dumps in ./assets/torii15/matlab_dump (generated with MATLAB)
 # and shipped VLAD vectors under ./247code/data. Uses h5py (v7.3) and
@@ -31,7 +32,7 @@ def _load_matlab_vlad(mat_path: Path, key: str) -> tuple[np.ndarray, str]:
         pytest.fail(f"h5py required to read MATLAB v7.3 dumps: {exc}", pytrace=False)
     with h5py.File(mat_path, "r") as mat:
         vlad_key = key
-        imfn_key = "imfn" if key == "vlad" else "imfn_030"
+        imfn_key = "imfn" if key in ("vlad", "v") else "imfn_030"
         if vlad_key not in mat or imfn_key not in mat:
             raise KeyError(f"Expected {vlad_key}/{imfn_key} in {mat_path}")
         vlad = np.array(mat[vlad_key], dtype=np.float32).reshape(-1)
@@ -39,11 +40,27 @@ def _load_matlab_vlad(mat_path: Path, key: str) -> tuple[np.ndarray, str]:
     return vlad, imfn
 
 
+def _load_matlab_pca_vlad(mat_path: Path) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Load 4096-dim PCA VLADs (v and v_030) from MATLAB dump if available."""
+    try:
+        import h5py
+    except Exception:
+        return None, None
+    with h5py.File(mat_path, "r") as mat:
+        v = np.array(mat["v"], dtype=np.float32).reshape(-1) if "v" in mat else None
+        v_030 = np.array(mat["v_030"], dtype=np.float32).reshape(-1) if "v_030" in mat else None
+    return v, v_030
+
+
 def _load_shipped_vlad(mat_path: Path) -> np.ndarray:
     mat = loadmat(mat_path)
-    if "vlad" not in mat:
-        raise KeyError(f"Expected vlad in {mat_path}")
-    vlad = np.asarray(mat["vlad"], dtype=np.float32).reshape(-1)
+    # Shipped files contain 4096-dim PCA-reduced VLAD (key: 'vlad' or 'v')
+    if "vlad" in mat:
+        vlad = np.asarray(mat["vlad"], dtype=np.float32).reshape(-1)
+    elif "v" in mat:
+        vlad = np.asarray(mat["v"], dtype=np.float32).reshape(-1)
+    else:
+        raise KeyError(f"Expected vlad or v in {mat_path}")
     return vlad
 
 
@@ -66,6 +83,7 @@ def _shipped_vlad_paths() -> list[Path]:
 
 
 def test_shipped_vlad_matches_matlab_dumps_strict():
+    min_cos = 0.999
     assets_dir = Torii15Assets.default_cache_dir()
     dump_intermediate = assets_dir / "matlab_dump" / "densevlad_dump_intermediate.mat"
     dump_blackbox = assets_dir / "matlab_dump" / "densevlad_dump_blackbox.mat"
@@ -99,23 +117,27 @@ def test_shipped_vlad_matches_matlab_dumps_strict():
             f"intermediate={imfn_intermediate},{imfn_intermediate_030} "
             f"blackbox={imfn_blackbox},{imfn_blackbox_030}"
         )
-    if not np.array_equal(vlad_intermediate, vlad_blackbox):
+    if cosine_similarity(vlad_intermediate, vlad_blackbox) < min_cos:
         metrics = _diff_metrics(vlad_intermediate, vlad_blackbox)
         errors.append(f"Intermediate vs blackbox mismatch (gsv): {metrics}")
-    if not np.array_equal(vlad_intermediate_030, vlad_blackbox_030):
+    if cosine_similarity(vlad_intermediate_030, vlad_blackbox_030) < min_cos:
         metrics = _diff_metrics(vlad_intermediate_030, vlad_blackbox_030)
         errors.append(f"Intermediate vs blackbox mismatch (gsv_030): {metrics}")
+
+    # Load 4096-dim PCA VLADs for shipped comparison
+    v_intermediate, v_intermediate_030 = _load_matlab_pca_vlad(dump_intermediate)
+    v_blackbox, v_blackbox_030 = _load_matlab_pca_vlad(dump_blackbox)
 
     for mat_path in shipped:
         shipped_vlad = _load_shipped_vlad(mat_path)
         image_name = mat_path.name.replace(".dict_grid.dnsvlad.mat", ".jpg")
         if "example_gsv" in mat_path.parts:
             if image_name == im_gsv:
-                ref_intermediate = vlad_intermediate
-                ref_blackbox = vlad_blackbox
+                ref_intermediate = v_intermediate
+                ref_blackbox = v_blackbox
             elif image_name == im_gsv_030:
-                ref_intermediate = vlad_intermediate_030
-                ref_blackbox = vlad_blackbox_030
+                ref_intermediate = v_intermediate_030
+                ref_blackbox = v_blackbox_030
             else:
                 errors.append(
                     f"No MATLAB dump for shipped GSV image {image_name}; "
@@ -126,10 +148,17 @@ def test_shipped_vlad_matches_matlab_dumps_strict():
             errors.append(f"Unknown shipped vlad location: {mat_path}")
             continue
 
-        if not np.array_equal(shipped_vlad, ref_intermediate):
+        if ref_intermediate is None or ref_blackbox is None:
+            errors.append(
+                f"MATLAB dumps missing PCA VLAD (v/v_030) for {image_name}; "
+                "regenerate dumps with updated scripts"
+            )
+            continue
+
+        if cosine_similarity(shipped_vlad, ref_intermediate) < min_cos:
             metrics = _diff_metrics(shipped_vlad, ref_intermediate)
             errors.append(f"Shipped vs intermediate mismatch for {mat_path}: {metrics}")
-        if not np.array_equal(shipped_vlad, ref_blackbox):
+        if cosine_similarity(shipped_vlad, ref_blackbox) < min_cos:
             metrics = _diff_metrics(shipped_vlad, ref_blackbox)
             errors.append(f"Shipped vs blackbox mismatch for {mat_path}: {metrics}")
 

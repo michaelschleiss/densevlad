@@ -35,11 +35,12 @@ vladdim = 4096;
 vlad_proj = single(vlad_proj(:, 1:vladdim)');
 vlad_wht = diag(1 ./ sqrt(vlad_lambda(1:vladdim)));
 v = single(yael_vecs_normalize(vlad_wht * (vlad_proj * vlad)));
+v_030 = single(yael_vecs_normalize(vlad_wht * (vlad_proj * vlad_030)));
 
 out_path = fullfile(out_dir, 'densevlad_dump_blackbox.mat');
 save(out_path, ...
     'imfn', 'imfn_030', 'dictfn', 'pcafn', ...
-    'vlad', 'vlad_030', 'v', ...
+    'vlad', 'vlad_030', 'v', 'v_030', ...
     '-v7.3');
 fprintf(1, 'Saved: %s\n', out_path);
 end
