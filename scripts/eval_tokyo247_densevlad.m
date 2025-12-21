@@ -197,7 +197,7 @@ for i = 1:count
         continue;
     end
     rel = images{i};
-    if use_png && endsWith(rel, '.jpg')
+    if use_png && ends_with(rel, '.jpg')
         rel = strrep(rel, '.jpg', '.png');
     end
     imfn = fullfile(root_dir, rel);
@@ -241,6 +241,15 @@ end
 if ~isempty(tmp_path) && exist(tmp_path, 'file')
     delete(tmp_path);
 end
+end
+
+function tf = ends_with(str, suffix)
+% Compatibility helper for older MATLAB releases (pre-R2016b).
+if numel(str) < numel(suffix)
+    tf = false;
+    return;
+end
+tf = strcmp(str(end-numel(suffix)+1:end), suffix);
 end
 
 function img = resize_max_dim(img, max_dim)
