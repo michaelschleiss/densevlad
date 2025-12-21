@@ -21,7 +21,7 @@ source .pixi/vlfeat_env_linux.sh
 ```
 
 On osx-arm64, the reference workflow uses pixi and the arm64 helper scripts
-under `scripts/arm64/` (kept for later):
+under `scripts/build/arm64/` (kept for later):
 ```
 pixi install -e dev
 pixi run build-vlfeat-arm64
@@ -29,7 +29,7 @@ pixi run install-cyvlfeat-arm64
 pixi run install-densevlad-arm64
 ```
 
-For Apple Silicon without Rosetta, `scripts/arm64/build_vlfeat_arm64.sh` can
+For Apple Silicon without Rosetta, `scripts/build/arm64/build_vlfeat_arm64.sh` can
 build `libvl` with `sse2neon` and print the environment variables needed to
 install `cyvlfeat`. This is reference-only and not part of the default
 linux/x86 path.
