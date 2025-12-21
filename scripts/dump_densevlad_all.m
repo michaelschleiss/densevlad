@@ -37,10 +37,6 @@ cd(root_dir);
 run('at_setup');
 cd(orig_dir);
 try
-    maxNumCompThreads(1);
-catch
-end
-try
     vl_setnumthreads(1);
 catch
 end
@@ -337,7 +333,7 @@ end
 
 function root_dir = ensure_root_dir()
 this_dir = fileparts(mfilename('fullpath'));
-repo_root = fullfile(this_dir, '..', '..');
+repo_root = fileparts(this_dir);  % parent of scripts/
 local_root = fullfile(repo_root, '247code');
 root_dir = local_root;
 if ~exist(root_dir, 'dir')
@@ -355,7 +351,7 @@ end
 
 function cache_dir = default_cache_dir()
 this_dir = fileparts(mfilename('fullpath'));
-repo_root = fullfile(this_dir, '..', '..');
+repo_root = fileparts(this_dir);  % parent of scripts/
 cache_dir = fullfile(repo_root, 'assets', 'torii15');
 end
 
