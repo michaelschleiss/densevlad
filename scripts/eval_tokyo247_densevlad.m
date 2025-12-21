@@ -23,12 +23,10 @@ opts.limit_q = 0;
 opts.force = false;
 opts.recall_n = [1 5 10 20];
 opts.max_dim = 640;
-opts.use_imdown = false;
-
 opts = parse_opts(opts, varargin{:});
 
 this_dir = fileparts(mfilename('fullpath'));
-repo_root = fullfile(this_dir, '..');
+repo_root = fileparts(this_dir);  % parent of scripts/
 cache_dir = fullfile(repo_root, 'assets', 'torii15');
 root_dir = fullfile(cache_dir, 'tokyo247');
 if isempty(opts.dbstruct_path)
@@ -121,11 +119,11 @@ q_mat = fullfile(opts.out_dir, 'densevlad_4096_q.mat');
 [q_file, q_done] = open_desc_file(q_mat, vladdim, num_q, 'q_desc', 'q_done', opts.force);
 
 fprintf(1, 'Computing DB descriptors (%d images)...\n', num_db);
-db_done = compute_descs(db_file, 'db_desc', db_done, db_images, opts.db_dir, true, opts.max_dim, opts.use_imdown, CX, kdtree, vlad_proj, vlad_wht);
+db_done = compute_descs(db_file, 'db_desc', db_done, db_images, opts.db_dir, true, opts.max_dim, dictfn, vlad_proj, vlad_wht, opts.out_dir);
 db_file.db_done = db_done;
 
 fprintf(1, 'Computing query descriptors (%d images)...\n', num_q);
-q_done = compute_descs(q_file, 'q_desc', q_done, q_images, opts.query_dir, false, opts.max_dim, opts.use_imdown, CX, kdtree, vlad_proj, vlad_wht);
+q_done = compute_descs(q_file, 'q_desc', q_done, q_images, opts.query_dir, false, opts.max_dim, dictfn, vlad_proj, vlad_wht, opts.out_dir);
 q_file.q_done = q_done;
 
 fprintf(1, 'Loading descriptors for evaluation...\n');
@@ -192,7 +190,7 @@ end
 done = mf.(done_name);
 end
 
-function done = compute_descs(mf, desc_name, done, images, root_dir, use_png, max_dim, use_imdown, CX, kdtree, vlad_proj, vlad_wht)
+function done = compute_descs(mf, desc_name, done, images, root_dir, use_png, max_dim, dictfn, vlad_proj, vlad_wht, out_dir)
 count = numel(images);
 for i = 1:count
     if done(i)
@@ -203,7 +201,7 @@ for i = 1:count
         rel = strrep(rel, '.jpg', '.png');
     end
     imfn = fullfile(root_dir, rel);
-    v = compute_densevlad(imfn, max_dim, use_imdown, CX, kdtree, vlad_proj, vlad_wht);
+    v = compute_densevlad(imfn, max_dim, dictfn, vlad_proj, vlad_wht, out_dir);
     mf.(desc_name)(:, i) = v;
     done(i) = true;
     if mod(i, 50) == 0 || i == count
@@ -212,23 +210,37 @@ for i = 1:count
 end
 end
 
-function v = compute_densevlad(imfn, max_dim, use_imdown, CX, kdtree, vlad_proj, vlad_wht)
-img = imread(imfn);
-if size(img, 3) > 1
-    img = rgb2gray(img);
+function v = compute_densevlad(imfn, max_dim, dictfn, vlad_proj, vlad_wht, out_dir)
+tmp_path = '';
+try
+    imfn_use = imfn;
+    if ~isempty(max_dim) && max_dim > 0
+        img = imread(imfn);
+        if size(img, 3) > 1
+            img = rgb2gray(img);
+        end
+        [h, w] = size(img);
+        if max(h, w) > max_dim
+            img = resize_max_dim(img, max_dim);
+            if ~exist(out_dir, 'dir')
+                mkdir(out_dir);
+            end
+            tmp_path = fullfile(out_dir, sprintf('tmp_%s.png', char(java.util.UUID.randomUUID())));
+            imwrite(img, tmp_path);
+            imfn_use = tmp_path;
+        end
+    end
+    vlad = at_image2densevlad(imfn_use, dictfn);
+    v = yael_vecs_normalize(vlad_wht * (vlad_proj * vlad));
+catch ME
+    if ~isempty(tmp_path) && exist(tmp_path, 'file')
+        delete(tmp_path);
+    end
+    rethrow(ME);
 end
-img = resize_max_dim(img, max_dim);
-if use_imdown
-    img = vl_imdown(img);
+if ~isempty(tmp_path) && exist(tmp_path, 'file')
+    delete(tmp_path);
 end
-img_single = single(img);
-if isinteger(img)
-    img_single = img_single ./ single(intmax(class(img)));
-end
-[~, desc] = vl_phow(img_single);
-desc = relja_rootsift(single(desc));
-vlad = relja_computeVLAD(desc, CX, kdtree);
-v = yael_vecs_normalize(vlad_wht * (vlad_proj * vlad));
 end
 
 function img = resize_max_dim(img, max_dim)

@@ -219,8 +219,8 @@ This requires the Image Processing Toolbox (`im2single`). Remove the limits
 for a full run (note: this is slow; DenseVLAD is ~30s/image on CPU in MATLAB).
 
 By default the MATLAB evaluator resizes images to max dimension 640 and
-does not apply `vl_imdown`. You can override these with:
-`'max_dim', 0` (disable resize) and `'use_imdown', true`.
+uses the original `at_image2densevlad` pipeline (including `vl_imdown`).
+Use `'max_dim', 0` to disable resizing.
 
 ## Tokyo 24/7 baseline evaluation (Figure 6)
 
