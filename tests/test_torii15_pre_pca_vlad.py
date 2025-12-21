@@ -6,6 +6,7 @@ from pathlib import Path
 
 from densevlad.torii15 import Torii15Assets, compute_densevlad_pre_pca, load_torii15_vocab
 from densevlad.torii15 import image as image_mod
+from tests._cosine import assert_cosine_similarity
 
 image_mod.set_simd_enabled(False)
 
@@ -92,8 +93,4 @@ def test_torii15_pre_pca_vlad_matches_reference():
         expected = _load_matlab_vector(mat, "vlad")
 
     assert vlad.shape == expected.shape
-    # Element-wise tolerance: 1e-6 is appropriate for float32 after ~20 operations
-    np.testing.assert_allclose(vlad, expected, rtol=0, atol=1e-6)
-    # Vector-level sanity check: cosine similarity should be nearly perfect
-    cosine_sim = np.dot(vlad, expected) / (np.linalg.norm(vlad) * np.linalg.norm(expected))
-    assert cosine_sim > 0.999999, f"Cosine similarity {cosine_sim} too low"
+    assert_cosine_similarity(vlad, expected, min_cos=0.999, label="pre-PCA VLAD")

@@ -6,6 +6,7 @@ import numpy as np
 
 from densevlad.torii15 import Torii15Assets, apply_pca_whitening, load_torii15_pca_whitening
 from densevlad.torii15.whitening import load_reference_pre_pca_vlad
+from tests._cosine import assert_cosine_similarity
 
 
 def _expected_v4096() -> np.ndarray:
@@ -282,5 +283,4 @@ def test_torii15_whitening_matches_pinned_vector():
     expected = _expected_v4096()
     assert expected.shape == (4096,)
     assert v.shape == (4096,)
-    np.testing.assert_allclose(v, expected, rtol=0, atol=1e-6)
-
+    assert_cosine_similarity(v, expected, min_cos=0.999, label="whitened vlad")

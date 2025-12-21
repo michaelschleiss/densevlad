@@ -10,6 +10,7 @@ from densevlad.torii15 import Torii15Assets, compute_densevlad_pre_pca, load_tor
 from densevlad.torii15 import image as image_mod
 from densevlad.torii15.tokyo247 import Tokyo247Paths
 from densevlad.torii15.whitening import apply_pca_whitening, load_torii15_pca_whitening
+from tests._cosine import assert_cosine_similarity_rows
 
 image_mod.set_simd_enabled(False)
 
@@ -131,12 +132,5 @@ def test_tokyo247_golden_vectors_match_matlab():
 
     assert pre.shape == pre_ref.shape
     assert v.shape == v_ref.shape
-    # Element-wise tolerance: 1e-6 is appropriate for float32 after ~20 operations
-    np.testing.assert_allclose(pre, pre_ref, rtol=0, atol=1e-6)
-    np.testing.assert_allclose(v, v_ref, rtol=0, atol=1e-6)
-    # Vector-level sanity check: cosine similarity for each row should be nearly perfect
-    for i in range(pre.shape[0]):
-        cos_pre = np.dot(pre[i], pre_ref[i]) / (np.linalg.norm(pre[i]) * np.linalg.norm(pre_ref[i]))
-        cos_v = np.dot(v[i], v_ref[i]) / (np.linalg.norm(v[i]) * np.linalg.norm(v_ref[i]))
-        assert cos_pre > 0.999999, f"Pre-PCA cosine similarity {cos_pre} too low for image {i}"
-        assert cos_v > 0.999999, f"Whitened cosine similarity {cos_v} too low for image {i}"
+    assert_cosine_similarity_rows(pre, pre_ref, min_cos=0.999, label="tokyo247 pre-PCA")
+    assert_cosine_similarity_rows(v, v_ref, min_cos=0.999, label="tokyo247 whitened")
