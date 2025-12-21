@@ -7,13 +7,26 @@ Initial focus: exact replication of Torii15 DenseVLAD pipeline and assets.
 
 ## Notes on dependencies
 
-On osx-arm64, use pixi to install the conda-forge environment and then
-reinstall `cyvlfeat` against the patched VLFeat 0.9.20 build:
+On linux-64, use pixi to build VLFeat from the submodule and install the
+clean cyvlfeat submodule:
 ```
 pixi install -e dev
-pixi run build-vlfeat
-pixi run install-cyvlfeat
-pixi run install-dvlad
+pixi run build-vlfeat-linux
+pixi run install-cyvlfeat-linux
+pixi run install-dvlad-linux
+```
+Then load the environment before running tests:
+```
+source .pixi/vlfeat_env_linux.sh
+```
+
+On osx-arm64, the reference workflow uses pixi and the arm64 helper scripts
+under `scripts/arm64/` (kept for later):
+```
+pixi install -e dev
+pixi run build-vlfeat-arm64
+pixi run install-cyvlfeat-arm64
+pixi run install-dvlad-arm64
 ```
 
 If you are not using pixi, `cyvlfeat` requires the VLFeat C library (headers
@@ -27,9 +40,22 @@ CFLAGS="-I/path/to/vlfeat" LDFLAGS="-L/path/to/vlfeat/bin/maci64" \
   pip install cyvlfeat
 ```
 
-For Apple Silicon without Rosetta, `scripts/build_vlfeat_arm64.sh` can
-download + patch VLFeat 0.9.20, build `libvl` with `sse2neon`, and print
-the exact environment variables needed to install `cyvlfeat`.
+For Apple Silicon without Rosetta, `scripts/arm64/build_vlfeat_arm64.sh` can
+build `libvl` with `sse2neon` and print the environment variables needed to
+install `cyvlfeat`. This is reference-only and not part of the default
+linux/x86 path.
+
+If you cloned without submodules:
+```
+git submodule update --init --recursive
+```
+
+The repo also includes a clean `thirdparty/cyvlfeat` submodule pinned at
+v0.7.1 for reference. The default workflow still installs `cyvlfeat` from
+PyPI; no local patches are required for correctness. An optional reference
+patch lives at `scripts/reference/cyvlfeat/patch_cyvlfeat_sdist.py` and adds
+C-level permute/contrast handling for faster PHOW, but it is not used by
+default. To apply it in the arm64 helper, set `DVLAD_PATCH_CYVLFEAT=1`.
 
 To force exact scalar math (used by strict parity tests), set:
 `DVLAD_DISABLE_SIMD=1`.
@@ -115,20 +141,23 @@ set `DVLAD_ASSIGN_METHOD=kmeans`. The matmul block size can be tuned with
 
 ## Performance notes
 
-Median timings on `example_gsv` (same image as MATLAB `test_densevlad.m`,
-single core, N=5):
+Tokyo247 golden (10 images, max_dim=640, imdown=false), Apple Silicon, single
+core, NEON enabled:
 ```
-stage         MATLAB    Python kdtree   Python matmul
-preprocess    0.009 s   0.014 s         0.014 s
-phow          0.334 s   0.467 s         0.455 s
-rootsift      0.068 s   0.081 s         0.082 s
-assignment    3.325 s   3.366 s         0.237 s
-vlad          0.133 s   0.240 s         0.235 s
-total         3.882 s   4.169 s         1.027 s
+stage         Python kdtree   Python matmul
+read          0.108 s         0.109 s
+phow          0.076 s         0.076 s
+rootsift      0.041 s         0.040 s
+assignment    1.810 s         0.205 s
+vlad          0.006 s         0.005 s
+total         2.040 s         0.435 s
 ```
-The kd-tree query dominates in MATLAB and Python. The matmul path replaces
-kd-tree assignments with exact L2 distances (BLAS), cutting assignment time
-by ~14x on this hardware.
+PHOW is ~5x faster than the original baseline after NEON dsift + C-level
+permutation/contrast thresholding. The kd-tree query still dominates the
+exact path. The matmul path (BLAS) cuts assignment time by ~9x and delivers
+~4.7x end-to-end speedup, but can differ in rare tie cases (observed
+1 descriptor mismatch out of 10 golden images, max VLAD diff ~5.5e-05).
+Use `DVLAD_ASSIGN_METHOD=kdtree` for strict parity.
 
 To regenerate or verify the shipped asset from a local MATLAB dump:
 ```
@@ -149,14 +178,25 @@ This is the full validation workflow used to assert parity.
   into `~/Library/Caches/dvlad/torii15/247code/...`.
 
 2) **Build VLFeat + cyvlfeat**
-- Apple Silicon (pixi):
+- Linux (pixi):
 ```
 pixi install -e dev
-pixi run build-vlfeat
-pixi run install-cyvlfeat
-pixi run install-dvlad
+pixi run build-vlfeat-linux
+pixi run install-cyvlfeat-linux
+pixi run install-dvlad-linux
+```
+- Apple Silicon (pixi, reference-only):
+```
+pixi install -e dev
+pixi run build-vlfeat-arm64
+pixi run install-cyvlfeat-arm64
+pixi run install-dvlad-arm64
 ```
 - Ensure `libvl` is discoverable before running tests:
+```
+source .pixi/vlfeat_env_linux.sh
+```
+or (arm64 reference):
 ```
 source .pixi/vlfeat_env.sh
 ```

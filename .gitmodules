@@ -1,0 +1,6 @@
+[submodule "thirdparty/vlfeat"]
+	path = thirdparty/vlfeat
+	url = https://github.com/michaelschleiss/vlfeat.git
+[submodule "thirdparty/cyvlfeat"]
+	path = thirdparty/cyvlfeat
+	url = https://github.com/michaelschleiss/cyvlfeat.git

@@ -391,6 +391,8 @@ def vl_imsmooth_gaussian(im: np.ndarray, sigma: float) -> np.ndarray:
     """
     VLFeat-compatible Gaussian smoothing (vl_imsmooth) with continuity padding.
     """
-    if _VLFEAT_IMCONV_AVAILABLE:
-        return _vl_imsmooth_gaussian_libvl(im, sigma)
-    return _vl_imsmooth_gaussian_py(im, sigma)
+    if not _VLFEAT_IMCONV_AVAILABLE:
+        raise RuntimeError(
+            "VLFeat libvl (imconv) is required for exact imsmooth parity."
+        )
+    return _vl_imsmooth_gaussian_libvl(im, sigma)

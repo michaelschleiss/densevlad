@@ -36,7 +36,7 @@ packages = ["src/dvlad"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["osx-arm64"]
+platforms = ["osx-arm64", "linux-64"]
 
 [tool.pixi.dependencies]
 python = "3.11.*"
@@ -47,13 +47,18 @@ h5py = ">=3.10"
 pillow = ">=10.0"
 platformdirs = ">=4.0"
 pytest = ">=7.4"
+numba = ">=0.58"
 
 [tool.pixi.environments]
 default = { solve-group = "default" }
 dev = { features = ["dev"], solve-group = "default" }
 
 [tool.pixi.tasks]
-build-vlfeat = "bash scripts/build_vlfeat_arm64.sh"
-install-cyvlfeat = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pip install --no-deps --force-reinstall --no-cache-dir --no-build-isolation --no-binary=:all: cyvlfeat && python scripts/fix_cyvlfeat_rpath.py'"
-install-dvlad = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pip install -e . --no-deps'"
-test-prepca = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pytest tests/test_torii15_pre_pca_vlad.py -q'"
+build-vlfeat-linux = "bash scripts/linux/build_vlfeat_linux.sh"
+install-cyvlfeat-linux = "bash -lc 'source .pixi/vlfeat_env_linux.sh && bash scripts/linux/install_cyvlfeat.sh'"
+install-dvlad-linux = "bash -lc 'source .pixi/vlfeat_env_linux.sh && python -m pip install -e . --no-deps'"
+test-prepca-linux = "bash -lc 'source .pixi/vlfeat_env_linux.sh && python -m pytest tests/test_torii15_pre_pca_vlad.py -q'"
+build-vlfeat-arm64 = "bash scripts/arm64/build_vlfeat_arm64.sh"
+install-cyvlfeat-arm64 = "bash -lc 'source .pixi/vlfeat_env.sh && bash scripts/arm64/install_cyvlfeat.sh'"
+install-dvlad-arm64 = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pip install -e . --no-deps'"
+test-prepca-arm64 = "bash -lc 'source .pixi/vlfeat_env.sh && python -m pytest tests/test_torii15_pre_pca_vlad.py -q'"

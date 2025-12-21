@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# Reference-only macOS helper; not part of the default linux/x86 workflow.
+
 import os
 from pathlib import Path
 import subprocess
@@ -38,12 +40,18 @@ def main() -> int:
     if not libvl.exists():
         raise SystemExit(f"libvl.dylib not found at {libvl}")
 
+    base = None
     try:
         import cyvlfeat  # type: ignore
-    except Exception as exc:
-        raise SystemExit(f"cyvlfeat import failed: {exc}") from exc
-
-    base = Path(cyvlfeat.__file__).resolve().parent
+        base = Path(cyvlfeat.__file__).resolve().parent
+    except Exception:
+        for entry in sys.path:
+            candidate = Path(entry) / "cyvlfeat" / "__init__.py"
+            if candidate.exists():
+                base = candidate.parent.resolve()
+                break
+        if base is None:
+            raise SystemExit("cyvlfeat import failed and module path not found.")
     so_paths = list(base.rglob("*.so"))
     if not so_paths:
         raise SystemExit(f"No cyvlfeat .so files found under {base}")

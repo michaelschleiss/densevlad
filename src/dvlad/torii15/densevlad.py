@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 import importlib.resources as importlib_resources
 from pathlib import Path
 from typing import Optional
 import ctypes
 import atexit
 import os
+import multiprocessing
 
 import numpy as np
 from scipy import sparse
@@ -131,9 +133,11 @@ def load_torii15_vocab(vocab_mat_path: str | Path) -> Torii15Vocab:
 def _rootsift(descs: np.ndarray) -> np.ndarray:
     x = np.asarray(descs, dtype=np.float32)
     # dsift descriptors are non-negative, so abs() is redundant.
-    denom = np.sum(x, axis=1, keepdims=True, dtype=np.float32) + np.float32(1e-12)
-    x = x / denom
-    return np.sqrt(x, dtype=np.float32)
+    denom = np.sum(x, axis=1, keepdims=True, dtype=np.float32)
+    denom += np.float32(1e-12)
+    np.divide(x, denom, out=x)
+    np.sqrt(x, out=x)
+    return x
 
 
 def _hard_assignments(descs: np.ndarray, centers: np.ndarray, *, chunk_size: int = 512) -> np.ndarray:
@@ -320,15 +324,11 @@ def _get_kmeans(centers: np.ndarray) -> tuple[ctypes.c_void_p, np.ndarray]:
 
 
 def _zero_assignment_idx(centers_f: np.ndarray) -> int:
-    if _image._LIBVL is not None:
-        try:
-            zero_desc = np.zeros((1, centers_f.shape[1]), dtype=np.float32)
-            idx = _kdtree_assignments_idx(zero_desc, centers_f)
-            return int(idx[0])
-        except Exception:
-            pass
-    norms = np.sum(centers_f * centers_f, axis=1, dtype=np.float32)
-    return int(np.argmin(norms))
+    if _image._LIBVL is None:
+        raise RuntimeError("VLFeat libvl is required for exact assignments.")
+    zero_desc = np.zeros((1, centers_f.shape[1]), dtype=np.float32)
+    idx = _kdtree_assignments_idx(zero_desc, centers_f)
+    return int(idx[0])
 
 
 def _get_matmul_centers(
@@ -364,28 +364,57 @@ def _kdtree_assignments(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
 
 def _kdtree_assignments_idx(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
     if _image._LIBVL is None:
-        return _hard_assignments_idx(descs, centers)
+        raise RuntimeError("VLFeat libvl is required for kd-tree assignments.")
 
     descs_f = np.ascontiguousarray(descs, dtype=np.float32)
     num_queries = descs_f.shape[0]
-    forest, _ = _get_kdforest(centers)
+    if num_queries == 0:
+        return np.empty((0,), dtype=np.int64)
 
-    indexes = np.empty((num_queries, 1), dtype=np.uint32)
+    forest, centers_f = _get_kdforest(centers)
+    nonzero_mask = np.any(descs_f, axis=1)
+    if np.all(nonzero_mask):
+        indexes = np.empty((num_queries, 1), dtype=np.uint32)
+        _image._LIBVL.vl_kdforest_query_with_array(
+            forest,
+            indexes.ctypes.data_as(ctypes.POINTER(ctypes.c_uint32)),
+            1,
+            num_queries,
+            None,
+            descs_f.ctypes.data_as(ctypes.c_void_p),
+        )
+        return indexes.reshape(-1).astype(np.int64)
+
+    zero_desc = np.zeros((1, centers_f.shape[1]), dtype=np.float32)
+    idx_zero = np.empty((1, 1), dtype=np.uint32)
     _image._LIBVL.vl_kdforest_query_with_array(
         forest,
-        indexes.ctypes.data_as(ctypes.POINTER(ctypes.c_uint32)),
+        idx_zero.ctypes.data_as(ctypes.POINTER(ctypes.c_uint32)),
         1,
-        num_queries,
+        1,
         None,
-        descs_f.ctypes.data_as(ctypes.c_void_p),
+        zero_desc.ctypes.data_as(ctypes.c_void_p),
     )
-
-    return indexes.reshape(-1).astype(np.int64)
+    zero_idx = int(idx_zero[0, 0])
+    indexes = np.empty((num_queries,), dtype=np.uint32)
+    indexes[~nonzero_mask] = np.uint32(zero_idx)
+    descs_nz = descs_f[nonzero_mask]
+    idx_nz = np.empty((descs_nz.shape[0], 1), dtype=np.uint32)
+    _image._LIBVL.vl_kdforest_query_with_array(
+        forest,
+        idx_nz.ctypes.data_as(ctypes.POINTER(ctypes.c_uint32)),
+        1,
+        descs_nz.shape[0],
+        None,
+        descs_nz.ctypes.data_as(ctypes.c_void_p),
+    )
+    indexes[nonzero_mask] = idx_nz.reshape(-1)
+    return indexes.astype(np.int64, copy=False)
 
 
 def _kmeans_assignments_idx(descs: np.ndarray, centers: np.ndarray) -> np.ndarray:
     if _image._LIBVL is None:
-        return _hard_assignments_idx(descs, centers)
+        raise RuntimeError("VLFeat libvl is required for kmeans assignments.")
 
     descs_f = np.ascontiguousarray(descs, dtype=np.float32)
     kmeans, _ = _get_kmeans(centers)
@@ -495,6 +524,81 @@ def _vl_vlad_hard(
     return enc.reshape(-1)
 
 
+def _phow_workers() -> int:
+    try:
+        return max(0, int(os.environ.get("DVLAD_PHOW_WORKERS", "4")))
+    except ValueError:
+        return 4
+
+
+def _phow_backend() -> str:
+    return os.environ.get("DVLAD_PHOW_BACKEND", "thread").lower()
+
+
+_PHOW_PROCESS_POOL: ProcessPoolExecutor | None = None
+_PHOW_PROCESS_POOL_WORKERS: int | None = None
+
+
+def _shutdown_phow_pool() -> None:
+    global _PHOW_PROCESS_POOL, _PHOW_PROCESS_POOL_WORKERS
+    if _PHOW_PROCESS_POOL is not None:
+        _PHOW_PROCESS_POOL.shutdown(wait=True, cancel_futures=True)
+    _PHOW_PROCESS_POOL = None
+    _PHOW_PROCESS_POOL_WORKERS = None
+
+
+atexit.register(_shutdown_phow_pool)
+
+
+def _get_phow_process_pool(workers: int) -> ProcessPoolExecutor:
+    global _PHOW_PROCESS_POOL, _PHOW_PROCESS_POOL_WORKERS
+    if _PHOW_PROCESS_POOL is not None and _PHOW_PROCESS_POOL_WORKERS == workers:
+        return _PHOW_PROCESS_POOL
+    _shutdown_phow_pool()
+    ctx = multiprocessing.get_context("spawn")
+    _PHOW_PROCESS_POOL = ProcessPoolExecutor(max_workers=workers, mp_context=ctx)
+    _PHOW_PROCESS_POOL_WORKERS = workers
+    return _PHOW_PROCESS_POOL
+
+
+def _phow_scale(
+    im: np.ndarray,
+    size: int,
+    max_size: int,
+    dsift_func,
+    *,
+    return_frames: bool = False,
+) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+    step = 2
+    magnification = 6
+    window_size = 1.5
+    contrast_threshold = 0.005
+
+    off = int(np.floor(1.0 + 1.5 * (max_size - size)))
+    off0 = max(off - 1, 0)
+    ims = vl_imsmooth_gaussian(im, sigma=size / magnification)
+    ims_t = np.ascontiguousarray(ims.T)
+    frames, descs = dsift_func(
+        ims_t,
+        step=step,
+        size=size,
+        bounds=np.array(
+            [off0, off0, ims_t.shape[0] - 1, ims_t.shape[1] - 1], dtype=np.int32
+        ),
+        window_size=window_size,
+        norm=True,
+        fast=True,
+        float_descriptors=False,
+    )
+    descs = descs[:, _DSIFT_TRANSPOSE_PERM]
+    descs[frames[:, 2] < contrast_threshold] = 0
+
+    if return_frames:
+        scale = np.full((frames.shape[0], 1), size, dtype=frames.dtype)
+        return np.concatenate([frames[:, :3], scale], axis=1), descs
+    return descs
+
+
 def _phow_descs(im: np.ndarray) -> np.ndarray:
     try:
         from cyvlfeat.sift import dsift
@@ -504,34 +608,27 @@ def _phow_descs(im: np.ndarray) -> np.ndarray:
         ) from e
 
     sizes = (4, 6, 8, 10)
-    step = 2
-    magnification = 6
-    window_size = 1.5
-    contrast_threshold = 0.005
     max_size = max(sizes)
-    descs_all: list[np.ndarray] = []
+    workers = min(_phow_workers(), len(sizes))
+    backend = _phow_backend()
 
-    for size in sizes:
-        off = int(np.floor(1.0 + 1.5 * (max_size - size)))
-        off0 = max(off - 1, 0)
-        ims = vl_imsmooth_gaussian(im, sigma=size / magnification)
-        ims_t = np.ascontiguousarray(ims.T)
-        frames, descs = dsift(
-            ims_t,
-            step=step,
-            size=size,
-            bounds=np.array(
-                [off0, off0, ims_t.shape[0] - 1, ims_t.shape[1] - 1], dtype=np.int32
-            ),
-            window_size=window_size,
-            norm=True,
-            fast=True,
-            float_descriptors=False,
+    if workers > 1 and backend == "process":
+        pool = _get_phow_process_pool(workers)
+        descs_all = list(
+            pool.map(
+                _phow_scale_worker,
+                [(im, size, max_size) for size in sizes],
+            )
         )
-        descs = descs[:, _DSIFT_TRANSPOSE_PERM]
-        contrast = frames[:, 2]
-        descs[contrast < contrast_threshold] = 0
-        descs_all.append(descs)
+    elif workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [
+                executor.submit(_phow_scale, im, size, max_size, dsift)
+                for size in sizes
+            ]
+            descs_all = [f.result() for f in futures]
+    else:
+        descs_all = [_phow_scale(im, size, max_size, dsift) for size in sizes]
 
     return np.vstack(descs_all)
 
@@ -545,39 +642,59 @@ def _phow(im: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         ) from e
 
     sizes = (4, 6, 8, 10)
-    step = 2
-    magnification = 6
-    window_size = 1.5
-    contrast_threshold = 0.005
     max_size = max(sizes)
-    descs_all: list[np.ndarray] = []
-    frames_all: list[np.ndarray] = []
+    workers = min(_phow_workers(), len(sizes))
+    backend = _phow_backend()
 
-    for size in sizes:
-        off = int(np.floor(1.0 + 1.5 * (max_size - size)))
-        off0 = max(off - 1, 0)
-        ims = vl_imsmooth_gaussian(im, sigma=size / magnification)
-        ims_t = np.ascontiguousarray(ims.T)
-        frames, descs = dsift(
-            ims_t,
-            step=step,
-            size=size,
-            bounds=np.array(
-                [off0, off0, ims_t.shape[0] - 1, ims_t.shape[1] - 1], dtype=np.int32
-            ),
-            window_size=window_size,
-            norm=True,
-            fast=True,
-            float_descriptors=False,
+    if workers > 1 and backend == "process":
+        pool = _get_phow_process_pool(workers)
+        results = list(
+            pool.map(
+                _phow_scale_worker_frames,
+                [(im, size, max_size) for size in sizes],
+            )
         )
-        descs = descs[:, _DSIFT_TRANSPOSE_PERM]
-        contrast = frames[:, 2]
-        descs[contrast < contrast_threshold] = 0
-        scale = np.full((frames.shape[0], 1), size, dtype=frames.dtype)
-        frames_all.append(np.concatenate([frames[:, :3], scale], axis=1))
-        descs_all.append(descs)
+        frames_all = [r[0] for r in results]
+        descs_all = [r[1] for r in results]
+    elif workers > 1:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [
+                executor.submit(
+                    _phow_scale, im, size, max_size, dsift, return_frames=True
+                )
+                for size in sizes
+            ]
+            results = [f.result() for f in futures]
+        frames_all = [r[0] for r in results]
+        descs_all = [r[1] for r in results]
+    else:
+        frames_all = []
+        descs_all = []
+        for size in sizes:
+            frames, descs = _phow_scale(
+                im, size, max_size, dsift, return_frames=True
+            )
+            frames_all.append(frames)
+            descs_all.append(descs)
 
     return np.vstack(frames_all), np.vstack(descs_all)
+
+
+def _phow_scale_worker(args: tuple[np.ndarray, int, int]) -> np.ndarray:
+    from cyvlfeat.sift import dsift
+
+    im, size, max_size = args
+    return _phow_scale(im, size, max_size, dsift)
+
+
+def _phow_scale_worker_frames(
+    args: tuple[np.ndarray, int, int],
+) -> tuple[np.ndarray, np.ndarray]:
+    from cyvlfeat.sift import dsift
+
+    im, size, max_size = args
+    frames, descs = _phow_scale(im, size, max_size, dsift, return_frames=True)
+    return frames, descs
 
 
 def _matlab_round_positive(x: np.ndarray) -> np.ndarray:

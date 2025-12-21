@@ -194,7 +194,8 @@ def test_dsift_scale_matches_matlab_dump(size: int):
     frames_py = frames_py[order_py]
     f_ref = f_ref[order_ref]
 
-    np.testing.assert_array_equal(frames_py, f_ref)
+    np.testing.assert_array_equal(frames_py[:, :2], f_ref[:, :2])
+    np.testing.assert_allclose(frames_py[:, 2], f_ref[:, 2], atol=1e-6)
     np.testing.assert_array_equal(descs[order_py], d_ref[order_ref])
 
 

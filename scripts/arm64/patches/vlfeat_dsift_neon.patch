@@ -1,0 +1,918 @@
+diff --git a/vl/dsift.c b/vl/dsift.c
+index 4819a1f..66de200 100644
+--- a/vl/dsift.c
++++ b/vl/dsift.c
+@@ -18,6 +18,11 @@ the terms of the BSD license (see the COPYING file).
+ #include "imopv.h"
+ #include <math.h>
+ #include <string.h>
++#include <stdio.h>
++#include <stdlib.h>
++#if defined(__ARM_NEON)
++#include <arm_neon.h>
++#endif
+ 
+ /**
+ <!-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~  -->
+@@ -437,6 +442,21 @@ vl_dsift_new (int imWidth, int imHeight)
+ 
+   self->convTmp1 = vl_malloc(sizeof(float) * self->imWidth * self->imHeight) ;
+   self->convTmp2 = vl_malloc(sizeof(float) * self->imWidth * self->imHeight) ;
++#if defined(__ARM_NEON)
++  self->convTmp1x4 = vl_malloc(sizeof(float) * self->imWidth * self->imHeight * 4) ;
++  self->convTmp2x4 = vl_malloc(sizeof(float) * self->imWidth * self->imHeight * 4) ;
++  self->convTmp1x4b = vl_malloc(sizeof(float) * self->imWidth * self->imHeight * 4) ;
++  self->convTmp2x4b = vl_malloc(sizeof(float) * self->imWidth * self->imHeight * 4) ;
++  self->grads4a = vl_malloc(sizeof(float) * self->imWidth * self->imHeight * 4) ;
++  self->grads4b = vl_malloc(sizeof(float) * self->imWidth * self->imHeight * 4) ;
++#else
++  self->convTmp1x4 = NULL ;
++  self->convTmp2x4 = NULL ;
++  self->convTmp1x4b = NULL ;
++  self->convTmp2x4b = NULL ;
++  self->grads4a = NULL ;
++  self->grads4b = NULL ;
++#endif
+ 
+   self->numBinAlloc = 0 ;
+   self->numFrameAlloc = 0 ;
+@@ -486,6 +506,12 @@ vl_dsift_delete (VlDsiftFilter * self)
+   _vl_dsift_free_buffers (self) ;
+   if (self->convTmp2) vl_free (self->convTmp2) ;
+   if (self->convTmp1) vl_free (self->convTmp1) ;
++  if (self->convTmp2x4) vl_free (self->convTmp2x4) ;
++  if (self->convTmp1x4) vl_free (self->convTmp1x4) ;
++  if (self->convTmp2x4b) vl_free (self->convTmp2x4b) ;
++  if (self->convTmp1x4b) vl_free (self->convTmp1x4b) ;
++  if (self->grads4b) vl_free (self->grads4b) ;
++  if (self->grads4a) vl_free (self->grads4a) ;
+   vl_free (self) ;
+ }
+ 
+@@ -565,6 +591,463 @@ _vl_dsift_with_gaussian_window (VlDsiftFilter * self)
+   } /* for biny */
+ }
+ 
++#if defined(__ARM_NEON)
++static void
++_vl_imconvcoltri_f4_continuity (float *dest, float const *image,
++                               int width, int height, int filterSize)
++{
++  int x, y ;
++  int f = filterSize ;
++  int stride = width ;
++  float scale = 1.0F / ((float)filterSize * (float)filterSize) ;
++
++  if (width == 0 || height == 0 || filterSize <= 0) return ;
++
++  float32x4_t *buffer_raw =
++    (float32x4_t *) vl_malloc (sizeof(float32x4_t) * (height + filterSize)) ;
++  float32x4_t *buffer = buffer_raw + f ;
++
++  for (x = 0 ; x < width ; ++x) {
++    float const *col = image + x * 4 ;
++    float const *imagei = col + (height - 1) * stride * 4 ;
++
++    buffer[height - 1] = vld1q_f32 (imagei) ;
++    for (y = height - 2 ; y >= 0 ; --y) {
++      imagei -= stride * 4 ;
++      buffer[y] = vaddq_f32 (buffer[y + 1], vld1q_f32 (imagei)) ;
++    }
++
++    {
++      float const *row0 = col ;
++      float32x4_t row0v = vld1q_f32 (row0) ;
++      for (y = -1 ; y >= -f ; --y) {
++        buffer[y] = vaddq_f32 (buffer[y + 1], row0v) ;
++      }
++    }
++
++    for (y = -f ; y < height - f ; ++y) {
++      buffer[y] = vsubq_f32 (buffer[y], buffer[y + f]) ;
++    }
++
++    {
++      float32x4_t buf_last = buffer[height - 1] ;
++      for (y = height - f ; y < height ; ++y) {
++        float factor = (float) (height - f - y) ;
++        buffer[y] = vsubq_f32 (buffer[y], vmulq_n_f32 (buf_last, factor)) ;
++      }
++    }
++
++    for (y = -f + 1 ; y < height ; ++y) {
++      buffer[y] = vaddq_f32 (buffer[y], buffer[y - 1]) ;
++    }
++
++    for (y = height - 1 ; y >= 0 ; --y) {
++      float32x4_t v = vsubq_f32 (buffer[y], buffer[y - f]) ;
++      v = vmulq_n_f32 (v, scale) ;
++      vst1q_f32 (dest + (y * stride + x) * 4, v) ;
++    }
++  }
++
++  vl_free (buffer_raw) ;
++}
++
++static void
++_vl_imconvrowtri_f4_continuity (float *dest, float const *image,
++                               int width, int height, int filterSize)
++{
++  int x, y ;
++  int f = filterSize ;
++  float scale = 1.0F / ((float)filterSize * (float)filterSize) ;
++
++  if (width == 0 || height == 0 || filterSize <= 0) return ;
++
++  float32x4_t *buffer_raw =
++    (float32x4_t *) vl_malloc (sizeof(float32x4_t) * (width + filterSize)) ;
++  float32x4_t *buffer = buffer_raw + f ;
++
++  for (y = 0 ; y < height ; ++y) {
++    float const *row = image + (y * width) * 4 ;
++    float const *imagei = row + (width - 1) * 4 ;
++
++    buffer[width - 1] = vld1q_f32 (imagei) ;
++    for (x = width - 2 ; x >= 0 ; --x) {
++      imagei -= 4 ;
++      buffer[x] = vaddq_f32 (buffer[x + 1], vld1q_f32 (imagei)) ;
++    }
++
++    {
++      float32x4_t col0v = vld1q_f32 (row) ;
++      for (x = -1 ; x >= -f ; --x) {
++        buffer[x] = vaddq_f32 (buffer[x + 1], col0v) ;
++      }
++    }
++
++    for (x = -f ; x < width - f ; ++x) {
++      buffer[x] = vsubq_f32 (buffer[x], buffer[x + f]) ;
++    }
++
++    {
++      float32x4_t buf_last = buffer[width - 1] ;
++      for (x = width - f ; x < width ; ++x) {
++        float factor = (float) (width - f - x) ;
++        buffer[x] = vsubq_f32 (buffer[x], vmulq_n_f32 (buf_last, factor)) ;
++      }
++    }
++
++    for (x = -f + 1 ; x < width ; ++x) {
++      buffer[x] = vaddq_f32 (buffer[x], buffer[x - 1]) ;
++    }
++
++    for (x = width - 1 ; x >= 0 ; --x) {
++      float32x4_t v = vsubq_f32 (buffer[x], buffer[x - f]) ;
++      v = vmulq_n_f32 (v, scale) ;
++      vst1q_f32 (dest + (y * width + x) * 4, v) ;
++    }
++  }
++
++  vl_free (buffer_raw) ;
++}
++
++static void
++_vl_imconvcoltri_f4x2_continuity (float *dest0, float *dest1,
++                                  float const *image0, float const *image1,
++                                  int width, int height, int filterSize)
++{
++  int x, y ;
++  int f = filterSize ;
++  int stride = width ;
++  float scale = 1.0F / ((float)filterSize * (float)filterSize) ;
++
++  if (width == 0 || height == 0 || filterSize <= 0) return ;
++
++  int buffer_len = height + filterSize ;
++  float32x4_t *buffer_raw =
++    (float32x4_t *) vl_malloc (sizeof(float32x4_t) * buffer_len * 2) ;
++  float32x4_t *buffer0 = buffer_raw + f ;
++  float32x4_t *buffer1 = buffer_raw + buffer_len + f ;
++
++  for (x = 0 ; x < width ; ++x) {
++    float const *col0 = image0 + x * 4 ;
++    float const *col1 = image1 + x * 4 ;
++    float const *imagei0 = col0 + (height - 1) * stride * 4 ;
++    float const *imagei1 = col1 + (height - 1) * stride * 4 ;
++
++    buffer0[height - 1] = vld1q_f32 (imagei0) ;
++    buffer1[height - 1] = vld1q_f32 (imagei1) ;
++    for (y = height - 2 ; y >= 0 ; --y) {
++      imagei0 -= stride * 4 ;
++      imagei1 -= stride * 4 ;
++      buffer0[y] = vaddq_f32 (buffer0[y + 1], vld1q_f32 (imagei0)) ;
++      buffer1[y] = vaddq_f32 (buffer1[y + 1], vld1q_f32 (imagei1)) ;
++    }
++
++    {
++      float32x4_t row0v0 = vld1q_f32 (col0) ;
++      float32x4_t row0v1 = vld1q_f32 (col1) ;
++      for (y = -1 ; y >= -f ; --y) {
++        buffer0[y] = vaddq_f32 (buffer0[y + 1], row0v0) ;
++        buffer1[y] = vaddq_f32 (buffer1[y + 1], row0v1) ;
++      }
++    }
++
++    for (y = -f ; y < height - f ; ++y) {
++      buffer0[y] = vsubq_f32 (buffer0[y], buffer0[y + f]) ;
++      buffer1[y] = vsubq_f32 (buffer1[y], buffer1[y + f]) ;
++    }
++
++    {
++      float32x4_t buf_last0 = buffer0[height - 1] ;
++      float32x4_t buf_last1 = buffer1[height - 1] ;
++      for (y = height - f ; y < height ; ++y) {
++        float factor = (float) (height - f - y) ;
++        buffer0[y] = vsubq_f32 (buffer0[y], vmulq_n_f32 (buf_last0, factor)) ;
++        buffer1[y] = vsubq_f32 (buffer1[y], vmulq_n_f32 (buf_last1, factor)) ;
++      }
++    }
++
++    for (y = -f + 1 ; y < height ; ++y) {
++      buffer0[y] = vaddq_f32 (buffer0[y], buffer0[y - 1]) ;
++      buffer1[y] = vaddq_f32 (buffer1[y], buffer1[y - 1]) ;
++    }
++
++    for (y = height - 1 ; y >= 0 ; --y) {
++      float32x4_t v0 = vsubq_f32 (buffer0[y], buffer0[y - f]) ;
++      float32x4_t v1 = vsubq_f32 (buffer1[y], buffer1[y - f]) ;
++      v0 = vmulq_n_f32 (v0, scale) ;
++      v1 = vmulq_n_f32 (v1, scale) ;
++      vst1q_f32 (dest0 + (y * stride + x) * 4, v0) ;
++      vst1q_f32 (dest1 + (y * stride + x) * 4, v1) ;
++    }
++  }
++
++  vl_free (buffer_raw) ;
++}
++
++static void
++_vl_imconvrowtri_f4x2_continuity (float *dest0, float *dest1,
++                                  float const *image0, float const *image1,
++                                  int width, int height, int filterSize)
++{
++  int x, y ;
++  int f = filterSize ;
++  float scale = 1.0F / ((float)filterSize * (float)filterSize) ;
++
++  if (width == 0 || height == 0 || filterSize <= 0) return ;
++
++  int buffer_len = width + filterSize ;
++  float32x4_t *buffer_raw =
++    (float32x4_t *) vl_malloc (sizeof(float32x4_t) * buffer_len * 2) ;
++  float32x4_t *buffer0 = buffer_raw + f ;
++  float32x4_t *buffer1 = buffer_raw + buffer_len + f ;
++
++  for (y = 0 ; y < height ; ++y) {
++    float const *row0 = image0 + (y * width) * 4 ;
++    float const *row1 = image1 + (y * width) * 4 ;
++    float const *imagei0 = row0 + (width - 1) * 4 ;
++    float const *imagei1 = row1 + (width - 1) * 4 ;
++
++    buffer0[width - 1] = vld1q_f32 (imagei0) ;
++    buffer1[width - 1] = vld1q_f32 (imagei1) ;
++    for (x = width - 2 ; x >= 0 ; --x) {
++      imagei0 -= 4 ;
++      imagei1 -= 4 ;
++      buffer0[x] = vaddq_f32 (buffer0[x + 1], vld1q_f32 (imagei0)) ;
++      buffer1[x] = vaddq_f32 (buffer1[x + 1], vld1q_f32 (imagei1)) ;
++    }
++
++    {
++      float32x4_t col0v0 = vld1q_f32 (row0) ;
++      float32x4_t col0v1 = vld1q_f32 (row1) ;
++      for (x = -1 ; x >= -f ; --x) {
++        buffer0[x] = vaddq_f32 (buffer0[x + 1], col0v0) ;
++        buffer1[x] = vaddq_f32 (buffer1[x + 1], col0v1) ;
++      }
++    }
++
++    for (x = -f ; x < width - f ; ++x) {
++      buffer0[x] = vsubq_f32 (buffer0[x], buffer0[x + f]) ;
++      buffer1[x] = vsubq_f32 (buffer1[x], buffer1[x + f]) ;
++    }
++
++    {
++      float32x4_t buf_last0 = buffer0[width - 1] ;
++      float32x4_t buf_last1 = buffer1[width - 1] ;
++      for (x = width - f ; x < width ; ++x) {
++        float factor = (float) (width - f - x) ;
++        buffer0[x] = vsubq_f32 (buffer0[x], vmulq_n_f32 (buf_last0, factor)) ;
++        buffer1[x] = vsubq_f32 (buffer1[x], vmulq_n_f32 (buf_last1, factor)) ;
++      }
++    }
++
++    for (x = -f + 1 ; x < width ; ++x) {
++      buffer0[x] = vaddq_f32 (buffer0[x], buffer0[x - 1]) ;
++      buffer1[x] = vaddq_f32 (buffer1[x], buffer1[x - 1]) ;
++    }
++
++    for (x = width - 1 ; x >= 0 ; --x) {
++      float32x4_t v0 = vsubq_f32 (buffer0[x], buffer0[x - f]) ;
++      float32x4_t v1 = vsubq_f32 (buffer1[x], buffer1[x - f]) ;
++      v0 = vmulq_n_f32 (v0, scale) ;
++      v1 = vmulq_n_f32 (v1, scale) ;
++      vst1q_f32 (dest0 + (y * width + x) * 4, v0) ;
++      vst1q_f32 (dest1 + (y * width + x) * 4, v1) ;
++    }
++  }
++
++  vl_free (buffer_raw) ;
++}
++
++static void
++_vl_dsift_with_flat_window_neon8 (VlDsiftFilter* self)
++{
++  int binx, biny ;
++  int framex, framey ;
++  int numBinT = self->geom.numBinT ;
++  int width = self->imWidth ;
++  int height = self->imHeight ;
++  int frameSizeX = self->geom.binSizeX * (self->geom.numBinX - 1) + 1 ;
++  int frameSizeY = self->geom.binSizeY * (self->geom.numBinY - 1) + 1 ;
++  int descrSize = vl_dsift_get_descriptor_size (self) ;
++  int framex_start = self->boundMinX ;
++  int framey_start = self->boundMinY ;
++  int framex_end = self->boundMaxX - frameSizeX + 1 ;
++  int framey_end = self->boundMaxY - frameSizeY + 1 ;
++  int stepX = self->stepX ;
++  int stepY = self->stepY ;
++  int binSizeX = self->geom.binSizeX ;
++  int binSizeY = self->geom.binSizeY ;
++  int stride4 = width * 4 ;
++  int framex_count = 0 ;
++  int row_stride = 0 ;
++
++  if (framex_end >= framex_start) {
++    framex_count = (framex_end - framex_start) / stepX + 1 ;
++    row_stride = framex_count * descrSize ;
++  }
++
++  _vl_imconvcoltri_f4x2_continuity (self->convTmp2x4, self->convTmp2x4b,
++                                    self->grads4a, self->grads4b,
++                                    width, height, self->geom.binSizeY) ;
++  _vl_imconvrowtri_f4x2_continuity (self->convTmp1x4, self->convTmp1x4b,
++                                    self->convTmp2x4, self->convTmp2x4b,
++                                    width, height, self->geom.binSizeX) ;
++
++  for (biny = 0 ; biny < self->geom.numBinY ; ++biny) {
++    float wy = _vl_dsift_get_bin_window_mean
++      (self->geom.binSizeY, self->geom.numBinY, biny, self->windowSize) ;
++    wy *= self->geom.binSizeY ;
++
++    for (binx = 0 ; binx < self->geom.numBinX ; ++binx) {
++      float wx = _vl_dsift_get_bin_window_mean
++        (self->geom.binSizeX, self->geom.numBinX, binx, self->windowSize) ;
++      wx *= self->geom.binSizeX ;
++      float w = wx * wy ;
++
++      float *dst = self->descrs
++        + binx * numBinT
++        + biny * (self->geom.numBinX * numBinT) ;
++      int binx_offset = binx * binSizeX ;
++      int biny_offset = biny * binSizeY ;
++      float *src_base0 = self->convTmp1x4
++        + (biny_offset * width + binx_offset) * 4 ;
++      float *src_base1 = self->convTmp1x4b
++        + (biny_offset * width + binx_offset) * 4 ;
++      float *dst_row = dst ;
++
++      if (row_stride == 0) continue ;
++
++      {
++        float32x4_t wv = vdupq_n_f32 (w) ;
++        int stepX4 = stepX * 4 ;
++        int framex_end_unroll = framex_end - stepX ;
++
++        for (framey = framey_start ; framey <= framey_end ; framey += stepY) {
++          float *src0 = src_base0 + framey * stride4 + framex_start * 4 ;
++          float *src1 = src_base1 + framey * stride4 + framex_start * 4 ;
++          float *dst_ptr = dst_row ;
++          for (framex = framex_start ; framex <= framex_end_unroll ; framex += 2 * stepX) {
++            float32x4_t v0 = vld1q_f32 (src0) ;
++            float32x4_t v1 = vld1q_f32 (src1) ;
++            float32x4_t v0b = vld1q_f32 (src0 + stepX4) ;
++            float32x4_t v1b = vld1q_f32 (src1 + stepX4) ;
++            v0 = vmulq_f32 (v0, wv) ;
++            v1 = vmulq_f32 (v1, wv) ;
++            v0b = vmulq_f32 (v0b, wv) ;
++            v1b = vmulq_f32 (v1b, wv) ;
++            vst1q_f32 (dst_ptr, v0) ;
++            vst1q_f32 (dst_ptr + 4, v1) ;
++            vst1q_f32 (dst_ptr + descrSize, v0b) ;
++            vst1q_f32 (dst_ptr + descrSize + 4, v1b) ;
++            src0 += 2 * stepX4 ;
++            src1 += 2 * stepX4 ;
++            dst_ptr += 2 * descrSize ;
++          }
++          if (framex <= framex_end) {
++            float32x4_t v0 = vld1q_f32 (src0) ;
++            float32x4_t v1 = vld1q_f32 (src1) ;
++            v0 = vmulq_f32 (v0, wv) ;
++            v1 = vmulq_f32 (v1, wv) ;
++            vst1q_f32 (dst_ptr, v0) ;
++            vst1q_f32 (dst_ptr + 4, v1) ;
++          }
++          dst_row += row_stride ;
++        } /* framey */
++      }
++    } /* binx */
++  } /* biny */
++}
++
++static void
++_vl_dsift_with_flat_window_neon4 (VlDsiftFilter* self)
++{
++  int binx, biny, bint ;
++  int framex, framey ;
++  int numBinT = self->geom.numBinT ;
++  int width = self->imWidth ;
++  int height = self->imHeight ;
++  int frameSizeX = self->geom.binSizeX * (self->geom.numBinX - 1) + 1 ;
++  int frameSizeY = self->geom.binSizeY * (self->geom.numBinY - 1) + 1 ;
++  int descrSize = vl_dsift_get_descriptor_size (self) ;
++  int framex_start = self->boundMinX ;
++  int framey_start = self->boundMinY ;
++  int framex_end = self->boundMaxX - frameSizeX + 1 ;
++  int framey_end = self->boundMaxY - frameSizeY + 1 ;
++  int stepX = self->stepX ;
++  int stepY = self->stepY ;
++  int binSizeX = self->geom.binSizeX ;
++  int binSizeY = self->geom.binSizeY ;
++  int stride4 = width * 4 ;
++  int framex_count = 0 ;
++  int row_stride = 0 ;
++
++  if (framex_end >= framex_start) {
++    framex_count = (framex_end - framex_start) / stepX + 1 ;
++    row_stride = framex_count * descrSize ;
++  }
++
++  for (bint = 0 ; bint < numBinT ; bint += 4) {
++    float const *grads4 = (bint == 0) ? self->grads4a : self->grads4b ;
++
++    _vl_imconvcoltri_f4_continuity (self->convTmp2x4, grads4,
++                                    width, height, self->geom.binSizeY) ;
++    _vl_imconvrowtri_f4_continuity (self->convTmp1x4, self->convTmp2x4,
++                                    width, height, self->geom.binSizeX) ;
++
++    for (biny = 0 ; biny < self->geom.numBinY ; ++biny) {
++      float wy = _vl_dsift_get_bin_window_mean
++        (self->geom.binSizeY, self->geom.numBinY, biny, self->windowSize) ;
++      wy *= self->geom.binSizeY ;
++
++      for (binx = 0 ; binx < self->geom.numBinX ; ++binx) {
++        float wx = _vl_dsift_get_bin_window_mean
++          (self->geom.binSizeX, self->geom.numBinX, binx, self->windowSize) ;
++        wx *= self->geom.binSizeX ;
++        float w = wx * wy ;
++
++        float *dst = self->descrs
++          + bint
++          + binx * numBinT
++          + biny * (self->geom.numBinX * numBinT) ;
++        int binx_offset = binx * binSizeX ;
++        int biny_offset = biny * binSizeY ;
++        float *src_base = self->convTmp1x4
++          + (biny_offset * width + binx_offset) * 4 ;
++        float *dst_row = dst ;
++
++        if (row_stride == 0) continue ;
++
++        {
++          float32x4_t wv = vdupq_n_f32 (w) ;
++          int stepX4 = stepX * 4 ;
++          int framex_end_unroll = framex_end - stepX ;
++
++          for (framey = framey_start ; framey <= framey_end ; framey += stepY) {
++            float *src = src_base + framey * stride4 + framex_start * 4 ;
++            float *dst_ptr = dst_row ;
++            for (framex = framex_start ; framex <= framex_end_unroll ; framex += 2 * stepX) {
++              float32x4_t v0 = vld1q_f32 (src) ;
++              float32x4_t v1 = vld1q_f32 (src + stepX4) ;
++              v0 = vmulq_f32 (v0, wv) ;
++              v1 = vmulq_f32 (v1, wv) ;
++              vst1q_f32 (dst_ptr, v0) ;
++              vst1q_f32 (dst_ptr + descrSize, v1) ;
++              src += 2 * stepX4 ;
++              dst_ptr += 2 * descrSize ;
++            }
++            if (framex <= framex_end) {
++              float32x4_t v = vld1q_f32 (src) ;
++              v = vmulq_f32 (v, wv) ;
++              vst1q_f32 (dst_ptr, v) ;
++            }
++            dst_row += row_stride ;
++          } /* framey */
++        }
++      } /* binx */
++    } /* biny */
++  } /* bint */
++}
++#endif
++
+ /** ------------------------------------------------------------------
+  ** @internal @brief Process with flat window.
+  ** @param self DSIFT filter object.
+@@ -576,6 +1059,24 @@ _vl_dsift_with_flat_window (VlDsiftFilter* self)
+   int binx, biny, bint ;
+   int framex, framey ;
+ 
++#if defined(__ARM_NEON)
++  if (vl_get_simd_enabled() &&
++      self->geom.numBinT == 8 &&
++      self->convTmp1x4 && self->convTmp2x4 &&
++      self->convTmp1x4b && self->convTmp2x4b &&
++      self->grads4a && self->grads4b) {
++    _vl_dsift_with_flat_window_neon8 (self) ;
++    return ;
++  }
++  if (vl_get_simd_enabled() &&
++      self->geom.numBinT == 8 &&
++      self->convTmp1x4 && self->convTmp2x4 &&
++      self->grads4a && self->grads4b) {
++    _vl_dsift_with_flat_window_neon4 (self) ;
++    return ;
++  }
++#endif
++
+   /* for each orientation bin */
+   for (bint = 0 ; bint < self->geom.numBinT ; ++bint) {
+ 
+@@ -664,65 +1165,209 @@ _vl_dsift_with_flat_window (VlDsiftFilter* self)
+ void vl_dsift_process (VlDsiftFilter* self, float const* im)
+ {
+   int t, x, y ;
++  int use_neon = 0 ;
++#ifdef VL_DSIFT_PROFILE
++  static int profile_enabled = -1 ;
++  double t0 = 0, t_grad = 0, t_conv = 0, t_norm = 0 ;
++  if (profile_enabled < 0) {
++    profile_enabled = (getenv("VL_DSIFT_PROFILE") != NULL) ? 1 : 0 ;
++  }
++  if (profile_enabled) t0 = vl_get_cpu_time() ;
++#endif
+ 
+   /* update buffers */
+   _vl_dsift_alloc_buffers (self) ;
+ 
+   /* clear integral images */
+-  for (t = 0 ; t < self->geom.numBinT ; ++t)
+-    memset (self->grads[t], 0,
+-            sizeof(float) * self->imWidth * self->imHeight) ;
++#if defined(__ARM_NEON)
++  use_neon = (vl_get_simd_enabled() &&
++              self->useFlatWindow && self->geom.numBinT == 8 &&
++              self->convTmp1x4 && self->convTmp2x4 &&
++              self->convTmp1x4b && self->convTmp2x4b &&
++              self->grads4a && self->grads4b) ;
++#endif
++
++  if (use_neon) {
++    memset (self->grads4a, 0,
++            sizeof(float) * self->imWidth * self->imHeight * 4) ;
++    memset (self->grads4b, 0,
++            sizeof(float) * self->imWidth * self->imHeight * 4) ;
++  } else {
++    for (t = 0 ; t < self->geom.numBinT ; ++t)
++      memset (self->grads[t], 0,
++              sizeof(float) * self->imWidth * self->imHeight) ;
++  }
+ 
+ #undef at
+ #define at(x,y) (im[(y)*self->imWidth+(x)])
+ 
+   /* Compute gradients, their norm, and their angle */
+ 
+-  for (y = 0 ; y < self->imHeight ; ++ y) {
+-    for (x = 0 ; x < self->imWidth ; ++ x) {
+-      float gx, gy ;
+-      float angle, mod, nt, rbint ;
+-      int bint ;
+-
+-      /* y derivative */
+-      if (y == 0) {
+-        gy = at(x,y+1) - at(x,y) ;
+-      } else if (y == self->imHeight - 1) {
+-        gy = at(x,y) - at(x,y-1) ;
+-      } else {
+-        gy = 0.5F * (at(x,y+1) - at(x,y-1)) ;
++  if (use_neon) {
++    int width = self->imWidth ;
++    int height = self->imHeight ;
++    int numBinT = self->geom.numBinT ;
++    float binScale = (float) numBinT / (2 * VL_PI) ;
++    float twoPi = (float) (2 * VL_PI) ;
++    float half = 0.5F ;
++    float *g0 = self->grads4a ;
++    float *g1 = self->grads4b ;
++
++#define VL_DSIFT_ACCUM_PACKED(idx, gx, gy)                              \
++    do {                                                                 \
++      float angle = vl_fast_atan2_f ((gy), (gx)) ;                       \
++      float mod = vl_fast_sqrt_f ((gx) * (gx) + (gy) * (gy)) ;           \
++      if (angle < 0) angle += twoPi ;                                    \
++      float nt = angle * binScale ;                                      \
++      int bint = (int) nt ;                                              \
++      if (bint >= numBinT) bint = 0 ;                                    \
++      float rbint = nt - bint ;                                          \
++      float w0 = (1 - rbint) * mod ;                                     \
++      float w1 = rbint * mod ;                                           \
++      int b1 = bint + 1 ;                                                \
++      if (b1 == numBinT) b1 = 0 ;                                        \
++      float *dst0 = g0 + (idx) * 4 ;                                     \
++      float *dst1 = g1 + (idx) * 4 ;                                     \
++      if (bint < 4) dst0[bint] = w0 ;                                    \
++      else dst1[bint - 4] = w0 ;                                         \
++      if (b1 < 4) dst0[b1] = w1 ;                                        \
++      else dst1[b1 - 4] = w1 ;                                           \
++    } while (0)
++
++    if (height > 0 && width > 0) {
++      float const* row = im ;
++      float const* row_next = (height > 1) ? (row + width) : row ;
++      int row_offset = 0 ;
++
++      if (width > 0) {
++        float gy = row_next[0] - row[0] ;
++        float gx = (width > 1) ? (row[1] - row[0]) : 0.0F ;
++        VL_DSIFT_ACCUM_PACKED(row_offset, gx, gy) ;
+       }
+ 
+-      /* x derivative */
+-      if (x == 0) {
+-        gx = at(x+1,y) - at(x,y) ;
+-      } else if (x == self->imWidth - 1) {
+-        gx = at(x,y) - at(x-1,y) ;
+-      } else {
+-        gx = 0.5F * (at(x+1,y) - at(x-1,y)) ;
++      for (x = 1 ; x < width - 1 ; ++x) {
++        float gy = row_next[x] - row[x] ;
++        float gx = half * (row[x + 1] - row[x - 1]) ;
++        VL_DSIFT_ACCUM_PACKED(row_offset + x, gx, gy) ;
+       }
+ 
+-      /* angle and modulus */
+-      angle = vl_fast_atan2_f (gy,gx) ;
+-      mod = vl_fast_sqrt_f (gx*gx + gy*gy) ;
++      if (width > 1) {
++        x = width - 1 ;
++        float gy = row_next[x] - row[x] ;
++        float gx = row[x] - row[x - 1] ;
++        VL_DSIFT_ACCUM_PACKED(row_offset + x, gx, gy) ;
++      }
++    }
+ 
+-      /* quantize angle */
+-      nt = vl_mod_2pi_f (angle) * (self->geom.numBinT / (2*VL_PI)) ;
+-      bint = (int) vl_floor_f (nt) ;
+-      rbint = nt - bint ;
++    for (y = 1 ; y < height - 1 ; ++y) {
++      int row_offset = y * width ;
++      float const* row_prev = im + (y - 1) * width ;
++      float const* row = row_prev + width ;
++      float const* row_next = row + width ;
+ 
+-      /* write it back */
+-      self->grads [(bint    ) % self->geom.numBinT][x + y * self->imWidth] = (1 - rbint) * mod ;
+-      self->grads [(bint + 1) % self->geom.numBinT][x + y * self->imWidth] = (    rbint) * mod ;
++      if (width > 0) {
++        float gy = half * (row_next[0] - row_prev[0]) ;
++        float gx = (width > 1) ? (row[1] - row[0]) : 0.0F ;
++        VL_DSIFT_ACCUM_PACKED(row_offset, gx, gy) ;
++      }
++
++      for (x = 1 ; x < width - 1 ; ++x) {
++        float gy = half * (row_next[x] - row_prev[x]) ;
++        float gx = half * (row[x + 1] - row[x - 1]) ;
++        VL_DSIFT_ACCUM_PACKED(row_offset + x, gx, gy) ;
++      }
++
++      if (width > 1) {
++        x = width - 1 ;
++        float gy = half * (row_next[x] - row_prev[x]) ;
++        float gx = row[x] - row[x - 1] ;
++        VL_DSIFT_ACCUM_PACKED(row_offset + x, gx, gy) ;
++      }
++    }
++
++    if (height > 1) {
++      y = height - 1 ;
++      int row_offset = y * width ;
++      float const* row = im + row_offset ;
++      float const* row_prev = row - width ;
++
++      if (width > 0) {
++        float gy = row[0] - row_prev[0] ;
++        float gx = (width > 1) ? (row[1] - row[0]) : 0.0F ;
++        VL_DSIFT_ACCUM_PACKED(row_offset, gx, gy) ;
++      }
++
++      for (x = 1 ; x < width - 1 ; ++x) {
++        float gy = row[x] - row_prev[x] ;
++        float gx = half * (row[x + 1] - row[x - 1]) ;
++        VL_DSIFT_ACCUM_PACKED(row_offset + x, gx, gy) ;
++      }
++
++      if (width > 1) {
++        x = width - 1 ;
++        float gy = row[x] - row_prev[x] ;
++        float gx = row[x] - row[x - 1] ;
++        VL_DSIFT_ACCUM_PACKED(row_offset + x, gx, gy) ;
++      }
++    }
++
++#undef VL_DSIFT_ACCUM_PACKED
++  } else
++  {
++    for (y = 0 ; y < self->imHeight ; ++ y) {
++      for (x = 0 ; x < self->imWidth ; ++ x) {
++        float gx, gy ;
++        float angle, mod, nt, rbint ;
++        int bint ;
++
++        /* y derivative */
++        if (y == 0) {
++          gy = at(x,y+1) - at(x,y) ;
++        } else if (y == self->imHeight - 1) {
++          gy = at(x,y) - at(x,y-1) ;
++        } else {
++          gy = 0.5F * (at(x,y+1) - at(x,y-1)) ;
++        }
++
++        /* x derivative */
++        if (x == 0) {
++          gx = at(x+1,y) - at(x,y) ;
++        } else if (x == self->imWidth - 1) {
++          gx = at(x,y) - at(x-1,y) ;
++        } else {
++          gx = 0.5F * (at(x+1,y) - at(x-1,y)) ;
++        }
++
++        /* angle and modulus */
++        angle = vl_fast_atan2_f (gy,gx) ;
++        mod = vl_fast_sqrt_f (gx*gx + gy*gy) ;
++
++        /* quantize angle */
++        nt = vl_mod_2pi_f (angle) * (self->geom.numBinT / (2*VL_PI)) ;
++        bint = (int) vl_floor_f (nt) ;
++        rbint = nt - bint ;
++
++        /* write it back */
++        self->grads [(bint    ) % self->geom.numBinT][x + y * self->imWidth] = (1 - rbint) * mod ;
++        self->grads [(bint + 1) % self->geom.numBinT][x + y * self->imWidth] = (    rbint) * mod ;
++      }
+     }
+   }
+ 
++#ifdef VL_DSIFT_PROFILE
++  if (profile_enabled) t_grad = vl_get_cpu_time() ;
++#endif
++
+   if (self->useFlatWindow) {
+     _vl_dsift_with_flat_window(self) ;
+   } else {
+     _vl_dsift_with_gaussian_window(self) ;
+   }
+ 
++#ifdef VL_DSIFT_PROFILE
++  if (profile_enabled) t_conv = vl_get_cpu_time() ;
++#endif
++
+   {
+     VlDsiftKeypoint* frameIter = self->frames ;
+     float * descrIter = self->descrs ;
+@@ -748,28 +1393,103 @@ void vl_dsift_process (VlDsiftFilter* self, float const* im)
+         frameIter->x    = framex + deltaCenterX ;
+         frameIter->y    = framey + deltaCenterY ;
+ 
+-        /* mass */
+-        {
++        if (use_neon) {
++#if defined(__ARM_NEON)
++          float32x4_t sumv = vdupq_n_f32(0.0F) ;
++          float32x4_t sumsqv = vdupq_n_f32(0.0F) ;
++          for (bint = 0 ; bint < descrSize ; bint += 4) {
++            float32x4_t v = vld1q_f32 (descrIter + bint) ;
++            sumv = vaddq_f32 (sumv, v) ;
++            sumsqv = vmlaq_f32 (sumsqv, v, v) ;
++          }
++          float mass = vaddvq_f32 (sumv) ;
++          float norm = vaddvq_f32 (sumsqv) ;
++          mass /= normConstant ;
++          frameIter->norm = mass ;
++          norm = vl_fast_sqrt_f (norm) + VL_EPSILON_F ;
++          float32x4_t invv = vdupq_n_f32 (1.0F / norm) ;
++          for (bint = 0 ; bint < descrSize ; bint += 4) {
++            float32x4_t v = vld1q_f32 (descrIter + bint) ;
++            v = vmulq_f32 (v, invv) ;
++            vst1q_f32 (descrIter + bint, v) ;
++          }
++
++          float32x4_t clampv = vdupq_n_f32 (0.2F) ;
++          sumsqv = vdupq_n_f32(0.0F) ;
++          for (bint = 0 ; bint < descrSize ; bint += 4) {
++            float32x4_t v = vld1q_f32 (descrIter + bint) ;
++            v = vminq_f32 (v, clampv) ;
++            vst1q_f32 (descrIter + bint, v) ;
++            sumsqv = vmlaq_f32 (sumsqv, v, v) ;
++          }
++          norm = vaddvq_f32 (sumsqv) ;
++          norm = vl_fast_sqrt_f (norm) + VL_EPSILON_F ;
++          invv = vdupq_n_f32 (1.0F / norm) ;
++          for (bint = 0 ; bint < descrSize ; bint += 4) {
++            float32x4_t v = vld1q_f32 (descrIter + bint) ;
++            v = vmulq_f32 (v, invv) ;
++            vst1q_f32 (descrIter + bint, v) ;
++          }
++#else
++          /* Fallback to scalar if NEON is unavailable. */
+           float mass = 0 ;
+-          for (bint = 0 ; bint < descrSize ; ++ bint)
+-            mass += descrIter[bint] ;
++          float norm = 0 ;
++          for (bint = 0 ; bint < descrSize ; ++ bint) {
++            float v = descrIter[bint] ;
++            mass += v ;
++            norm += v * v ;
++          }
+           mass /= normConstant ;
+           frameIter->norm = mass ;
++          norm = vl_fast_sqrt_f (norm) + VL_EPSILON_F ;
++          for (bint = 0 ; bint < descrSize ; ++ bint) {
++            descrIter[bint] /= norm ;
++          }
++
++          norm = 0 ;
++          for (bint = 0 ; bint < descrSize ; ++ bint) {
++            float v = descrIter[bint] ;
++            if (v > 0.2F) v = 0.2F ;
++            descrIter[bint] = v ;
++            norm += v * v ;
++          }
++          norm = vl_fast_sqrt_f (norm) + VL_EPSILON_F ;
++          for (bint = 0 ; bint < descrSize ; ++ bint) {
++            descrIter[bint] /= norm ;
++          }
++#endif
++        } else {
++          /* mass */
++          {
++            float mass = 0 ;
++            for (bint = 0 ; bint < descrSize ; ++ bint)
++              mass += descrIter[bint] ;
++            mass /= normConstant ;
++            frameIter->norm = mass ;
++          }
++
++          /* L2 normalize */
++          _vl_dsift_normalize_histogram (descrIter, descrIter + descrSize) ;
++
++          /* clamp */
++          for(bint = 0 ; bint < descrSize ; ++ bint)
++            if (descrIter[bint] > 0.2F) descrIter[bint] = 0.2F ;
++
++          /* L2 normalize */
++          _vl_dsift_normalize_histogram (descrIter, descrIter + descrSize) ;
+         }
+ 
+-        /* L2 normalize */
+-        _vl_dsift_normalize_histogram (descrIter, descrIter + descrSize) ;
+-
+-        /* clamp */
+-        for(bint = 0 ; bint < descrSize ; ++ bint)
+-          if (descrIter[bint] > 0.2F) descrIter[bint] = 0.2F ;
+-
+-        /* L2 normalize */
+-        _vl_dsift_normalize_histogram (descrIter, descrIter + descrSize) ;
+-
+         frameIter ++ ;
+         descrIter += descrSize ;
+       } /* for framex */
+     } /* for framey */
+   }
++
++#ifdef VL_DSIFT_PROFILE
++  if (profile_enabled) {
++    t_norm = vl_get_cpu_time() ;
++    fprintf(stderr, "vl_dsift_process: grad=%.6f conv=%.6f norm=%.6f total=%.6f\n",
++            t_grad - t0, t_conv - t_grad, t_norm - t_conv, t_norm - t0) ;
++  }
++#endif
+ }
+diff --git a/vl/dsift.h b/vl/dsift.h
+index 8bb301b..e3620d0 100644
+--- a/vl/dsift.h
++++ b/vl/dsift.h
+@@ -68,6 +68,12 @@ typedef struct VlDsiftFilter_
+   float **grads ;          /**< gradient buffer */
+   float *convTmp1 ;        /**< temporary buffer */
+   float *convTmp2 ;        /**< temporary buffer */
++  float *convTmp1x4 ;      /**< temporary buffer (4-channel packed) */
++  float *convTmp2x4 ;      /**< temporary buffer (4-channel packed) */
++  float *convTmp1x4b ;     /**< temporary buffer (4-channel packed, bins 4-7) */
++  float *convTmp2x4b ;     /**< temporary buffer (4-channel packed, bins 4-7) */
++  float *grads4a ;         /**< gradient buffer (bins 0-3, packed) */
++  float *grads4b ;         /**< gradient buffer (bins 4-7, packed) */
+ }  VlDsiftFilter ;
+ 
+ VL_EXPORT VlDsiftFilter *vl_dsift_new (int width, int height) ;
