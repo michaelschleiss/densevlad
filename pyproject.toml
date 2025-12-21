@@ -10,13 +10,6 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Michael" }]
-dependencies = [
-  "numpy>=1.24,<2",
-  "h5py>=3.10",
-  "scipy>=1.10",
-  "Pillow>=10.0",
-  "platformdirs>=4.0",
-]
 
 [tool.pytest.ini_options]
 addopts = "-q"
