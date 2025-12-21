@@ -43,7 +43,7 @@ def _require_matlab_dump(name: str) -> tuple[object, Path]:
             "SETUP REQUIRED: MATLAB dump not found.\n"
             f"  Expected: {dump_path}\n"
             "Generate it with:\n"
-            "  matlab -batch \"run('scripts/matlab/dump_densevlad_all.m'); dump_densevlad_all('densevlad')\"",
+            "  matlab -batch \"run('scripts/dump_densevlad_all.m'); dump_densevlad_all('densevlad')\"",
             pytrace=False,
         )
     return h5py, dump_path
@@ -97,4 +97,3 @@ def test_torii15_pre_pca_vlad_matches_reference():
     # Vector-level sanity check: cosine similarity should be nearly perfect
     cosine_sim = np.dot(vlad, expected) / (np.linalg.norm(vlad) * np.linalg.norm(expected))
     assert cosine_sim > 0.999999, f"Cosine similarity {cosine_sim} too low"
-
