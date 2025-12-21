@@ -11,7 +11,7 @@ TOKYO247_DBSTRUCT_URL = (
     "https://raw.githubusercontent.com/devanshigarg01/pittsburghdata/main/tokyo247.mat"
 )
 TOKYO247_QUERY_ZIP_URL = (
-    "https://data.ciirc.cvut.cz/public/projects/2015netVLAD/Tokyo247/queries/247query_v3.zip"
+    "https://data.ciirc.cvut.cz/public/projects/2015netVLAD/Tokyo247/queries/247query_subset_v2.zip"
 )
 TOKYO247_DB_BASE_URL = (
     "https://data.ciirc.cvut.cz/public/projects/2015netVLAD/Tokyo247/database_gsv_vga/"
@@ -75,11 +75,11 @@ def ensure_tokyo247_dbstruct() -> Path:
 
 
 def ensure_tokyo247_queries() -> Path:
-    queries_root = ASSETS_ROOT / "queries"
+    queries_root = ASSETS_ROOT / "247query_subset_v2"
     if queries_root.is_dir():
         print(f"Tokyo247 queries already present: {queries_root}")
         return queries_root
-    zip_path = ASSETS_ROOT / "247query_v3.zip"
+    zip_path = ASSETS_ROOT / "247query_subset_v2.zip"
     if not zip_path.exists():
         _download(TOKYO247_QUERY_ZIP_URL, zip_path)
     _extract_zip(zip_path, ASSETS_ROOT)

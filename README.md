@@ -39,7 +39,7 @@ If you cloned without submodules:
 git submodule update --init --recursive
 ```
 
-To download required assets (247code + full Tokyo247 dbStruct/queries/database),
+To download required assets (247code + Tokyo247 dbStruct + query subset + database),
 run:
 ```
 python scripts/download_assets.py
@@ -233,7 +233,7 @@ python scripts/download_assets.py
 This downloads:
 1) **Database (75,984 images, ~40GB)** into
 `./assets/torii15/tokyo247/database_gsv_vga/03814/...`
-2) **Full queries (247query_v3.zip)** into `./assets/torii15/queries/`
+2) **Query subset (247query_subset_v2.zip)** into `./assets/torii15/247query_subset_v2/`
 3) **dbStruct metadata (tokyo247.mat)** into `./assets/torii15/tokyo247/`
 
 The dbStruct lists `.jpg` paths, but the database is shipped as `.png`;

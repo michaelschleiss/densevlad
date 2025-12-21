@@ -38,7 +38,7 @@ if isempty(opts.db_dir)
     opts.db_dir = fullfile(root_dir, 'database_gsv_vga');
 end
 if isempty(opts.query_dir)
-    opts.query_dir = fullfile(cache_dir, 'queries');
+    opts.query_dir = fullfile(cache_dir, '247query_subset_v2');
 end
 if isempty(opts.out_dir)
     opts.out_dir = fullfile(root_dir, 'matlab_densevlad_cache');
