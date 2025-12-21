@@ -141,10 +141,8 @@ If you generate a dump locally, the same normalized `CX` is also cached at:
 This is the full validation workflow used to assert parity.
 
 1) **Fetch assets**
-- The code downloads `247code.zip` from the authors to
-  `./247code.zip` on first use.
-- Tests and scripts use `Torii15Assets.default()` to pull files from the zip
-  into `./247code/...`.
+- Run `python scripts/download_assets.py` to download 247code plus the full
+  Tokyo247 dbStruct/queries/database into `./assets/torii15/...`.
 
 2) **Build VLFeat + cyvlfeat**
 - Linux (pixi):
@@ -234,23 +232,15 @@ using the query subset from the paper (315 images).
 Database images (GSV) and queries are mirrored by the NetVLAD project:
 `https://data.ciirc.cvut.cz/public/projects/2015netVLAD/Tokyo247/`.
 
-1) **Database (75,984 images, ~40GB)**
-Download all `03814.tar` ... `03829.tar` from:
-`https://data.ciirc.cvut.cz/public/projects/2015netVLAD/Tokyo247/database_gsv_vga/`
-and extract into:
+Run:
+```
+python scripts/download_assets.py
+```
+This downloads:
+1) **Database (75,984 images, ~40GB)** into
 `./assets/torii15/tokyo247/database_gsv_vga/03814/...`
-
-2) **Query subset (1.1GB, 315 images)**
-`https://data.ciirc.cvut.cz/public/projects/2015netVLAD/Tokyo247/queries/247query_subset_v2.zip`
-Extract to:
-`./assets/torii15/247query_subset_v2/`
-
-3) **dbStruct metadata (tokyo247.mat)**
-Download the NetVLAD-compatible dbStruct file:
-```
-curl -L -o ./assets/torii15/tokyo247/tokyo247.mat \
-  https://raw.githubusercontent.com/devanshigarg01/pittsburghdata/main/tokyo247.mat
-```
+2) **Full queries (247query_v3.zip)** into `./assets/torii15/queries/`
+3) **dbStruct metadata (tokyo247.mat)** into `./assets/torii15/tokyo247/`
 
 The dbStruct lists `.jpg` paths, but the database is shipped as `.png`;
 the evaluator maps `.jpg` -> `.png` automatically.
