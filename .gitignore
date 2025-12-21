@@ -10,7 +10,6 @@ __pycache__/
 venv/
 dist/
 build/
-!scripts/build/
 *.egg-info/
 .cache/
 .pixi/
