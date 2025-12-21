@@ -128,14 +128,6 @@ exact path. The matmul path (BLAS) cuts assignment time by ~9x and delivers
 1 descriptor mismatch out of 10 golden images, max VLAD diff ~5.5e-05).
 Use `DVLAD_ASSIGN_METHOD=kdtree` for strict parity.
 
-To regenerate or verify the shipped asset from a local MATLAB dump:
-```
-pixi run -e dev python scripts/generate_cx_norm.py --verify
-```
-
-If you generate a dump locally, the same normalized `CX` is also cached at:
-`./assets/torii15/247code/data/dnscnt_RDSIFT_K128.cx_norm.npy`.
-
 ## Validation pipeline (end-to-end)
 
 This is the full validation workflow used to assert parity.
