@@ -29,7 +29,8 @@ pixi run install-cyvlfeat-arm64
 pixi run install-dvlad-arm64
 ```
 
-If you are not using pixi, `cyvlfeat` requires the VLFeat C library (headers
+If you are not using pixi, install `cyvlfeat` separately (or use
+`pip install dvlad[vlfeat]`). `cyvlfeat` requires the VLFeat C library (headers
 and `libvl`) to be installed on your system. On Apple Silicon, build VLFeat
 from source with AVX disabled and the SSE2 paths enabled via `sse2neon`,
 then set include/library paths when installing `cyvlfeat`.

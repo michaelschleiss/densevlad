@@ -11,7 +11,6 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Michael" }]
 dependencies = [
-  "cyvlfeat>=0.7.1",
   "numpy>=1.24,<2",
   "h5py>=3.10",
   "scipy>=1.10",
@@ -22,6 +21,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=7.4",
+]
+vlfeat = [
+  "cyvlfeat>=0.7.1",
 ]
 
 [tool.pytest.ini_options]
@@ -40,7 +42,6 @@ platforms = ["osx-arm64", "linux-64"]
 
 [tool.pixi.dependencies]
 python = "3.11.*"
-cyvlfeat = ">=0.7.1"
 numpy = ">=1.24,<2"
 scipy = ">=1.10"
 h5py = ">=3.10"
@@ -48,6 +49,9 @@ pillow = ">=10.0"
 platformdirs = ">=4.0"
 pytest = ">=7.4"
 numba = ">=0.58"
+
+[tool.pixi.pypi-dependencies]
+# Keep empty so Pixi does not try to resolve project dependencies from PyPI.
 
 [tool.pixi.environments]
 default = { solve-group = "default" }
