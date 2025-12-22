@@ -38,8 +38,6 @@ acc_noresize_phow = 0;
 acc_noresize_rootsift = 0;
 acc_noresize_vlad = 0;
 v_noresize = [];
-desc_last = [];
-img_single_noresize = [];
 
 % Total runtime vs vl_threads sweep (uses no-resize path)
 if exist('vl_threads', 'file')
@@ -83,8 +81,6 @@ for r = 1:reps
 
   t0 = tic;
   desc = relja_rootsift(single(desc));
-  desc_last = desc;
-  img_single_noresize = im2single(img);
   t_rootsift = toc(t0);
   acc_noresize_rootsift = acc_noresize_rootsift + t_rootsift;
 
@@ -148,33 +144,3 @@ if ~isequal(v, vlad)
   error('Shipped VLAD mismatch at index %d (got %.9g, expected %.9g).', idx, v(idx), vlad(idx));
 end
 fprintf('BENCH matlab_original_bit_identical 1\n');
-
-% Thread scaling probe (uses existing data; does not change main benchmark)
-if exist('vl_threads', 'file')
-  test_size = 6;
-  off = floor(1.0 + 3.0 / 2.0 * (max_size - test_size));
-  threads = [1 8 32];
-  for ti = 1:numel(threads)
-    tcount = threads(ti);
-    vl_threads(tcount);
-    t0 = tic;
-    for r = 1:3
-      nn = vl_kdtreequery(kdtree, CX, desc_last);
-    end
-    t_kdt = toc(t0) / 3;
-    t0 = tic;
-    for r = 1:3
-      [f_s, d_s] = vl_dsift(img_single_noresize, ...
-        'Step', step, ...
-        'Size', test_size, ...
-        'Bounds', [off off +inf +inf], ...
-        'Norm', ...
-        'Fast', ...
-        'WindowSize', window_size);
-    end
-    t_dsift = toc(t0) / 3;
-    fprintf('BENCH matlab_threads %d kdtreequery=%.6f dsift=%.6f\n', tcount, t_kdt, t_dsift);
-  end
-else
-  disp('vl_threads not found');
-end
