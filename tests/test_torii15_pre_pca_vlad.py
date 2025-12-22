@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from pathlib import Path
+from scipy.io import loadmat
 
 from densevlad.torii15 import Torii15Assets, compute_densevlad_pre_pca, load_torii15_vocab
 from densevlad.torii15 import image as image_mod
@@ -20,41 +21,11 @@ _VLFEAT_SETUP_HINT = (
 )
 
 
-def _require_h5py():
-    try:
-        import h5py  # type: ignore[import-not-found]
-    except Exception:
-        pytest.fail(
-            "SETUP REQUIRED: h5py is required for MATLAB dump parity tests.\n"
-            "Install it and rerun.",
-            pytrace=False,
-        )
-    return h5py
-
-
-def _matlab_dump_path(name: str) -> Path:
-    return Torii15Assets.default_cache_dir() / "matlab_dump" / name
-
-
-def _require_matlab_dump(name: str) -> tuple[object, Path]:
-    h5py = _require_h5py()
-    dump_path = _matlab_dump_path(name)
-    if not dump_path.exists():
-        pytest.fail(
-            "SETUP REQUIRED: MATLAB dump not found.\n"
-            f"  Expected: {dump_path}\n"
-            "Generate it with:\n"
-            "  matlab -batch \"run('scripts/dump_densevlad_intermediate.m'); dump_densevlad_intermediate\"",
-            pytrace=False,
-        )
-    return h5py, dump_path
-
-
-def _load_matlab_vector(mat, name: str) -> np.ndarray:
-    arr = np.array(mat[name])
-    if arr.ndim == 2:
-        arr = arr.T
-    return np.asarray(arr).reshape(-1)
+def _load_shipped_vlad(path: Path) -> np.ndarray:
+    mat = loadmat(path)
+    if "vlad" not in mat:
+        raise KeyError(f"Expected vlad in {path}")
+    return np.asarray(mat["vlad"], dtype=np.float32).reshape(-1)
 
 
 def _require_cyvlfeat():
@@ -82,15 +53,16 @@ def _require_libvl():
 def test_torii15_pre_pca_vlad_matches_reference():
     _require_cyvlfeat()
     _require_libvl()
-    h5py, dump_path = _require_matlab_dump("densevlad_dump_intermediate.mat")
     assets = Torii15Assets.default()
     image_path = assets.extract_member(
         "247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.jpg"
     )
+    shipped_path = Path(
+        "247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.dict_grid.dnsvlad.mat"
+    )
+    expected = _load_shipped_vlad(shipped_path)
     vocab = load_torii15_vocab(assets.vocab_mat_path())
     vlad = compute_densevlad_pre_pca(image_path, vocab)
-    with h5py.File(dump_path, "r") as mat:
-        expected = _load_matlab_vector(mat, "vlad")
 
     assert vlad.shape == expected.shape
     assert_cosine_similarity(vlad, expected, min_cos=0.999, label="pre-PCA VLAD")
