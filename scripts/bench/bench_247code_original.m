@@ -5,6 +5,10 @@ shipped_path = fullfile(repo, '247code', 'data', 'example_gsv', 'L-NLvGeZ6JHX6JO
 
 cd(fullfile(repo, '247code'));
 run('at_setup');
+run(fullfile(repo, '247code', 'thirdparty', 'vlfeat-0.9.20', 'toolbox', 'vl_setup'));
+fprintf(1, 'vl_version: %s\n', vl_version);
+fprintf(1, 'vl_phow: %s\n', which('vl_phow'));
+fprintf(1, 'vl_dsift: %s\n', which('vl_dsift'));
 load(dictfn, 'CX');
 CX = at_l2normalize_col(CX);
 kdtree = vl_kdtreebuild(CX);
