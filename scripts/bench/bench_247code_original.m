@@ -97,6 +97,7 @@ acc_resize_preprocess = 0;
 acc_resize_phow = 0;
 acc_resize_rootsift = 0;
 acc_resize_vlad = 0;
+v_resize = [];
 % Timing loop for image 012_000 (pre-resize + DenseVLAD)
 for r = 1:reps
   t0 = tic;
@@ -123,6 +124,7 @@ for r = 1:reps
   v = relja_computeVLAD(desc, CX, kdtree);
   t_vlad = toc(t0);
   acc_resize_vlad = acc_resize_vlad + t_vlad;
+  v_resize = v;
   acc_resize = acc_resize + t_pre + t_phow + t_rootsift + t_vlad;
 end
 
@@ -139,6 +141,22 @@ v = v(:);
 vlad = vlad(:);
 assert(numel(v) == numel(vlad), 'Shipped VLAD size mismatch.');
 assert(isa(v, 'single') && isa(vlad, 'single'), 'Expected single-precision VLADs.');
+if ~isempty(v_resize)
+  v_resize = v_resize(:);
+  if numel(v_resize) == numel(vlad)
+    a = double(v_resize);
+    b = double(vlad);
+    denom = norm(a) * norm(b);
+    if denom > 0
+      cos_sim = dot(a, b) / denom;
+      fprintf('BENCH matlab_resize_cosine_vs_shipped %.9f\n', cos_sim);
+    else
+      fprintf('BENCH matlab_resize_cosine_vs_shipped NaN\n');
+    end
+  else
+    fprintf('BENCH matlab_resize_cosine_vs_shipped NaN\n');
+  end
+end
 if ~isequal(v, vlad)
   idx = find(v ~= vlad, 1, 'first');
   error('Shipped VLAD mismatch at index %d (got %.9g, expected %.9g).', idx, v(idx), vlad(idx));
