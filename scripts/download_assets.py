@@ -50,27 +50,31 @@ def _extract_tar(tar_path: Path, dest_dir: Path) -> None:
 
 
 def ensure_247code() -> None:
-    """Download 247code, extracting only data/ and thirdparty/ (code/ is tracked in git)."""
+    """Download 247code and extract the full archive."""
     root = REPO_ROOT / "247code"
     data_dir = root / "data"
     thirdparty_dir = root / "thirdparty"
+    code_dir = root / "code"
 
     # Check if we need to download
-    if data_dir.is_dir() and thirdparty_dir.is_dir():
-        print(f"247code data/thirdparty already present: {root}")
+    if data_dir.is_dir() and thirdparty_dir.is_dir() and code_dir.is_dir():
+        print(f"247code already present: {root}")
         return
 
     zip_path = REPO_ROOT / "247code.zip"
     if not zip_path.exists():
         _download("http://www.ok.ctrl.titech.ac.jp/~torii/project/247/download/247code.zip", zip_path)
 
-    # Extract only data/ and thirdparty/, skip code/ (tracked in git)
-    print(f"Extracting 247code data/thirdparty from {zip_path}")
+    # Extract full archive (code/, data/, thirdparty/, etc.)
+    print(f"Extracting 247code from {zip_path}")
     with zipfile.ZipFile(zip_path) as zf:
-        for member in zf.namelist():
-            # Only extract data/ and thirdparty/ subdirs
-            if member.startswith("247code/data/") or member.startswith("247code/thirdparty/"):
-                zf.extract(member, REPO_ROOT)
+        zf.extractall(REPO_ROOT)
+    # Make the extracted tree read-only to avoid accidental edits.
+    for path in [root, *root.rglob("*")]:
+        try:
+            path.chmod(path.stat().st_mode & ~0o222)
+        except PermissionError:
+            continue
     zip_path.unlink(missing_ok=True)
     print(f"247code ready: {root}")
 

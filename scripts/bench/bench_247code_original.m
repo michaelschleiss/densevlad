@@ -100,18 +100,6 @@ acc_resize_phow = 0;
 acc_resize_rootsift = 0;
 acc_resize_vlad = 0;
 v_resize = [];
-acc_fast = 0;
-v_fast = [];
-acc_fast_preprocess = 0;
-acc_fast_phow = 0;
-acc_fast_rootsift = 0;
-acc_fast_vlad = 0;
-acc_fast_resize = 0;
-v_fast_resize = [];
-acc_fast_preprocess_resize = 0;
-acc_fast_phow_resize = 0;
-acc_fast_rootsift_resize = 0;
-acc_fast_vlad_resize = 0;
 % Timing loop for image 012_000 (pre-resize + DenseVLAD)
 for r = 1:reps
   t0 = tic;
@@ -142,75 +130,11 @@ for r = 1:reps
   acc_resize = acc_resize + t_pre + t_phow + t_rootsift + t_vlad;
 end
 
-% Timing loop for image 012_000 (fast matmul assignment)
-for r = 1:reps
-  t0 = tic;
-  img = imread(image_path);
-  if (size(img,3)>1)
-    img=rgb2gray(img);
-  end
-  img = vl_imdown(img);
-  t_pre = toc(t0);
-  acc_fast_preprocess = acc_fast_preprocess + t_pre;
-
-  t0 = tic;
-  [~, desc] = vl_phow(im2single(img));
-  t_phow = toc(t0);
-  acc_fast_phow = acc_fast_phow + t_phow;
-
-  t0 = tic;
-  desc = relja_rootsift(single(desc));
-  t_rootsift = toc(t0);
-  acc_fast_rootsift = acc_fast_rootsift + t_rootsift;
-
-  t0 = tic;
-  v_fast = relja_computeVLAD_fast(desc, CX, cached_zero_tie);
-  t_vlad = toc(t0);
-  acc_fast_vlad = acc_fast_vlad + t_vlad;
-
-  acc_fast = acc_fast + t_pre + t_phow + t_rootsift + t_vlad;
-end
-
-% Timing loop for image 012_000 (fast matmul + pre-resize)
-for r = 1:reps
-  t0 = tic;
-  img = imread(image_path);
-  if (size(img,3)>1)
-    img=rgb2gray(img);
-  end
-  img = imresize(img, [480 640], 'bilinear');
-  img = vl_imdown(img);
-  t_pre = toc(t0);
-  acc_fast_preprocess_resize = acc_fast_preprocess_resize + t_pre;
-
-  t0 = tic;
-  [~, desc] = vl_phow(im2single(img));
-  t_phow = toc(t0);
-  acc_fast_phow_resize = acc_fast_phow_resize + t_phow;
-
-  t0 = tic;
-  desc = relja_rootsift(single(desc));
-  t_rootsift = toc(t0);
-  acc_fast_rootsift_resize = acc_fast_rootsift_resize + t_rootsift;
-
-  t0 = tic;
-  v_fast_resize = relja_computeVLAD_fast(desc, CX, cached_zero_tie);
-  t_vlad = toc(t0);
-  acc_fast_vlad_resize = acc_fast_vlad_resize + t_vlad;
-
-  acc_fast_resize = acc_fast_resize + t_pre + t_phow + t_rootsift + t_vlad;
-end
-
 fprintf('BENCH matlab_original_at_image2densevlad noresize=%.6f preresize=%.6f\n', acc_noresize / reps, acc_resize / reps);
 fprintf('BENCH matlab_preprocess             noresize=%.6f preresize=%.6f\n', acc_noresize_preprocess / reps, acc_resize_preprocess / reps);
 fprintf('BENCH matlab_phow                   noresize=%.6f preresize=%.6f\n', acc_noresize_phow / reps, acc_resize_phow / reps);
 fprintf('BENCH matlab_rootsift               noresize=%.6f preresize=%.6f\n', acc_noresize_rootsift / reps, acc_resize_rootsift / reps);
 fprintf('BENCH matlab_computeVLAD            noresize=%.6f preresize=%.6f\n', acc_noresize_vlad / reps, acc_resize_vlad / reps);
-fprintf('BENCH matlab_fast_original_at_image2densevlad noresize=%.6f preresize=%.6f\n', acc_fast / reps, acc_fast_resize / reps);
-fprintf('BENCH matlab_fast_preprocess        noresize=%.6f preresize=%.6f\n', acc_fast_preprocess / reps, acc_fast_preprocess_resize / reps);
-fprintf('BENCH matlab_fast_phow              noresize=%.6f preresize=%.6f\n', acc_fast_phow / reps, acc_fast_phow_resize / reps);
-fprintf('BENCH matlab_fast_rootsift          noresize=%.6f preresize=%.6f\n', acc_fast_rootsift / reps, acc_fast_rootsift_resize / reps);
-fprintf('BENCH matlab_fast_computeVLAD       noresize=%.6f preresize=%.6f\n', acc_fast_vlad / reps, acc_fast_vlad_resize / reps);
 
 % Parity check (cosine similarity) vs shipped asset.
 load(shipped_path, 'vlad');
@@ -229,18 +153,6 @@ if denom > 0
 end
 fprintf('BENCH matlab_cosine_vs_shipped_kdtree %.9f\n', cos_sim);
 
-% FAST path (matmul assignments)
-v_fast = v_fast(:);
-assert(numel(v_fast) == numel(vlad), 'Shipped VLAD size mismatch (fast).');
-a = double(v_fast);
-b = double(vlad);
-denom = norm(a) * norm(b);
-cos_fast = NaN;
-if denom > 0
-  cos_fast = dot(a, b) / denom;
-end
-fprintf('BENCH matlab_cosine_vs_shipped_fast %.9f\n', cos_fast);
-
 % Enforce parity against shipped using the best path found.
-best_cos = max([cos_sim cos_fast]);
+best_cos = cos_sim;
 assert(best_cos >= 0.999, 'Shipped VLAD cosine similarity %.6f < 0.999.', best_cos);
