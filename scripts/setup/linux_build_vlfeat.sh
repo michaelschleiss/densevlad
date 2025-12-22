@@ -39,7 +39,7 @@ make -C "${VLFEAT_SRC}" clean >/dev/null 2>&1 || true
 echo "Building VLFeat (linux x86_64)..."
 make -B -C "${VLFEAT_SRC}" ARCH=glnxa64 MEX= MKOCTFILE= \
   CFLAGS="-I${VLFEAT_SRC} ${EXTRA_CFLAGS}" \
-  DISABLE_OPENMP=yes dll
+  DISABLE_OPENMP=no DISABLE_AVX=no dll
 
 LIBVL_PATH="${VLFEAT_SRC}/bin/glnxa64/libvl.so"
 
