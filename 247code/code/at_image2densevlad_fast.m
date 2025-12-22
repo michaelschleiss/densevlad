@@ -7,7 +7,15 @@ function vlad = at_image2densevlad_fast(imfn,dictfn,planefn,labelfn)
 %--- load visual vocabulary (centroids)
 load(dictfn,'CX');
 CX = at_l2normalize_col(CX);
-% Note: no kdtree build - relja_computeVLAD_fast uses matmul
+% Compute kdtree tie index once per dictionary for zero descriptors.
+% This avoids hardcoding a cluster id while keeping the fast path fast.
+persistent cached_dict cached_zero_tie
+if isempty(cached_zero_tie) || ~strcmp(cached_dict, dictfn)
+  kdtree = vl_kdtreebuild(CX);
+  zero_desc = zeros(size(CX,1), 1, class(CX));
+  cached_zero_tie = vl_kdtreequery(kdtree, CX, zero_desc);
+  cached_dict = dictfn;
+end
 
 %--- read image, convert gray, downsize to vga
 img = imread(imfn);
@@ -24,4 +32,4 @@ if nargin > 3
   [f, desc] = at_grid_maskfeatures_dense(f,desc,size(img),labelfn,planefn);
 end
 
-vlad = relja_computeVLAD_fast(desc, CX);
+vlad = relja_computeVLAD_fast(desc, CX, cached_zero_tie);
