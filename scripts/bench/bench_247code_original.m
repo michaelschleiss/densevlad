@@ -9,6 +9,13 @@ load(dictfn, 'CX');
 CX = at_l2normalize_col(CX);
 kdtree = vl_kdtreebuild(CX);
 
+if exist('vl_threads', 'file')
+  vl_threads(1);
+end
+if exist('vl_setnumthreads', 'file')
+  vl_setnumthreads(1);
+end
+
 reps = 3;
 warmup = 1;
 sizes = [4 6 8 10];
@@ -62,6 +69,13 @@ if exist('vl_threads', 'file')
   end
 else
   disp('vl_threads not found');
+end
+
+if exist('vl_threads', 'file')
+  vl_threads(1);
+end
+if exist('vl_setnumthreads', 'file')
+  vl_setnumthreads(1);
 end
 % Timing loop for image 012_000 (original path: no pre-resize)
 for r = 1:reps
