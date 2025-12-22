@@ -114,6 +114,25 @@ set `DVLAD_ASSIGN_METHOD=kmeans`. The matmul block size can be tuned with
 
 ## Performance notes
 
+MATLAB bench reference (example_gsv, 16 threads):
+```
+Original VLFeat 0.9.20 path:
+BENCH matlab_original_at_image2densevlad noresize=0.805007 preresize=0.140565
+BENCH matlab_preprocess             noresize=0.011909 preresize=0.013226
+BENCH matlab_phow                   noresize=0.452426 preresize=0.074173
+BENCH matlab_rootsift               noresize=0.077365 preresize=0.007637
+BENCH matlab_computeVLAD            noresize=0.263307 preresize=0.045529
+BENCH matlab_cosine_vs_shipped_kdtree 1.000000000
+
+Optimized path (external VLFeat):
+BENCH matlab_original_at_image2densevlad noresize=0.364684 preresize=0.063133
+BENCH matlab_preprocess             noresize=0.011637 preresize=0.012724
+BENCH matlab_phow                   noresize=0.152402 preresize=0.029583
+BENCH matlab_rootsift               noresize=0.076290 preresize=0.006963
+BENCH matlab_computeVLAD            noresize=0.124355 preresize=0.013863
+BENCH matlab_cosine_vs_shipped_kdtree 0.996348112
+```
+
 Tokyo247 golden (10 images, max_dim=640, imdown=false), Apple Silicon, single
 core, NEON enabled:
 ```
