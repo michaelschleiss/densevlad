@@ -172,6 +172,31 @@ def _topk_indices(
     return top_idx
 
 
+def _apply_pano_nms(
+    topk_idx: np.ndarray,
+    k: int,
+    *,
+    group_size: int,
+) -> np.ndarray:
+    num_q = topk_idx.shape[0]
+    out = np.full((num_q, k), -1, dtype=np.int64)
+    for qi in range(num_q):
+        seen: set[int] = set()
+        write = 0
+        for idx in topk_idx[qi]:
+            if idx < 0:
+                continue
+            pano = int(idx) // group_size
+            if pano in seen:
+                continue
+            seen.add(pano)
+            out[qi, write] = idx
+            write += 1
+            if write >= k:
+                break
+    return out
+
+
 def _compute_positives(utm_db: np.ndarray, utm_q: np.ndarray, radius: float) -> list[np.ndarray]:
     tree = cKDTree(utm_db)
     return [np.asarray(idx, dtype=np.int64) for idx in tree.query_ball_point(utm_q, r=radius)]
@@ -238,6 +263,20 @@ def main() -> int:
     parser.add_argument("--limit-db", type=int, default=0, help="Limit DB images (debug)")
     parser.add_argument("--limit-q", type=int, default=0, help="Limit query images (debug)")
     parser.add_argument("--force", action="store_true", help="Recompute descriptors")
+    parser.add_argument(
+        "--nms",
+        action="store_true",
+        help=(
+            "Apply Tokyo24/7 panorama non-max suppression (unique panoramas). "
+            "Assumes 12 cutouts per panorama ordered contiguously."
+        ),
+    )
+    parser.add_argument(
+        "--nms-group-size",
+        type=int,
+        default=12,
+        help="Cutouts per panorama for NMS grouping (default: 12)",
+    )
     args = parser.parse_args()
 
     paths = Tokyo247Paths.default()
@@ -257,6 +296,11 @@ def main() -> int:
     q_images = dbstruct.q_images
     utm_db = dbstruct.utm_db
     utm_q = dbstruct.utm_q
+    if abs(dbstruct.pos_dist_thr - 25.0) > 1e-6:
+        print(
+            f"Warning: pos_dist_thr is {dbstruct.pos_dist_thr},"
+            " expected 25.0 per Torii15 evaluation protocol."
+        )
 
     if args.limit_db:
         db_images = db_images[: args.limit_db]
@@ -305,7 +349,17 @@ def main() -> int:
     positives = _compute_positives(utm_db, utm_q, dbstruct.pos_dist_thr)
 
     ns = _parse_ns(args.recall_n)
-    topk_idx = _topk_indices(db_desc, q_desc, max(ns), chunk_size=args.chunk_size)
+    max_n = max(ns)
+    if args.nms:
+        topk_raw = _topk_indices(
+            db_desc,
+            q_desc,
+            max_n * args.nms_group_size,
+            chunk_size=args.chunk_size,
+        )
+        topk_idx = _apply_pano_nms(topk_raw, max_n, group_size=args.nms_group_size)
+    else:
+        topk_idx = _topk_indices(db_desc, q_desc, max_n, chunk_size=args.chunk_size)
 
     time_by_name = load_query_time_of_day(query_dir)
     time_labels = np.array([time_by_name[name] for name in q_images])
