@@ -21,6 +21,7 @@ orig_dir = pwd;
 cd(root_dir);
 run('at_setup');
 cd(orig_dir);
+repo_root = fileparts(root_dir);
 
 imfn = fullfile(root_dir, 'data', 'example_gsv', 'L-NLvGeZ6JHX6JO8Xnf_BA_012_000.jpg');
 imfn_030 = fullfile(root_dir, 'data', 'example_gsv', 'L-NLvGeZ6JHX6JO8Xnf_BA_012_030.jpg');
@@ -67,6 +68,7 @@ orig_dir = pwd;
 cd(root_dir);
 run('at_setup');
 cd(orig_dir);
+repo_root = fileparts(root_dir);
 cache_dir = default_cache_dir();
 tokyo_root = fullfile(cache_dir, 'tokyo247');
 db_dir = fullfile(tokyo_root, 'database_gsv_vga');
@@ -157,7 +159,7 @@ for i = 1:total
         img_single = img_single ./ single(intmax(class(img)));
     end
     [~, desc] = vl_phow(img_single);
-    desc = relja_rootsift(single(desc));
+    desc = sqrt(bsxfun(@rdivide, single(desc), sum(abs(single(desc)), 1) + 1e-12));
     vlad = relja_computeVLAD(desc, CX, kdtree);
     vlad_pre(:, i) = single(vlad);
     v = yael_vecs_normalize(vlad_wht * (vlad_proj * vlad));

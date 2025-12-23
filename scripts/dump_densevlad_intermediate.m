@@ -21,6 +21,7 @@ orig_dir = pwd;
 cd(root_dir);
 run('at_setup');
 cd(orig_dir);
+repo_root = fileparts(root_dir);
 try
     vl_setnumthreads(1);
 catch
@@ -256,7 +257,7 @@ for i = 1:total
         img_single = img_single ./ single(intmax(class(img)));
     end
     [~, desc] = vl_phow(img_single);
-    desc = relja_rootsift(single(desc));
+    desc = sqrt(bsxfun(@rdivide, single(desc), sum(abs(single(desc)), 1) + 1e-12));
     vlad = relja_computeVLAD(desc, CX, kdtree);
     vlad_pre(:, i) = single(vlad);
     v = yael_vecs_normalize(vlad_wht * (vlad_proj * vlad));
