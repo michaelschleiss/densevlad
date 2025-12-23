@@ -79,7 +79,30 @@ authors' `247code.zip` and used by `test_densevlad.m`:
 `247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.jpg`.
 
 The shipped `example_gsv` `.dict_grid.dnsvlad.mat` vectors match MATLAB
-bit-for-bit when generated with MATLAB R2015b + VLFeat 0.9.20.
+bit-for-bit when generated with MATLAB R2015b + VLFeat 0.9.20 or 0.9.21
+(GCC OpenMP/libgomp build).
+
+## Immutable parity assets (247code)
+
+The following 247code assets are the single source of truth for parity
+checks and **must not be modified**:
+- `247code/data/dnscnt_RDSIFT_K128.mat`
+- `247code/data/dnscnt_RDSIFT_K128_vlad_pcaproj.mat`
+- `247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.jpg`
+- `247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.label`
+- `247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.dict_grid.dnsvlad.mat`
+- `247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_030.jpg`
+- `247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_030.label`
+- `247code/data/example_gsv/L-NLvGeZ6JHX6JO8Xnf_BA_012_030.dict_grid.dnsvlad.mat`
+- `247code/data/example_grid/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.dict_grid.dnsvlad.mat`
+- `247code/data/example_grid/L-NLvGeZ6JHX6JO8Xnf_BA_012_030.dict_grid.dnsvlad.mat`
+- `247code/data/example_grid/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.jpg`
+- `247code/data/example_grid/L-NLvGeZ6JHX6JO8Xnf_BA_012_000.label.mat`
+- `247code/data/example_grid/L-NLvGeZ6JHX6JO8Xnf_BA_012_030.jpg`
+- `247code/data/example_grid/L-NLvGeZ6JHX6JO8Xnf_BA_012_030.label.mat`
+- `247code/data/example_grid/planes.txt`
+
+Treat these files as immutable reference outputs used by parity tests.
 
 ## MATLAB dump (strict tests)
 
@@ -125,12 +148,12 @@ BENCH matlab_computeVLAD            noresize=0.263307 preresize=0.045529
 BENCH matlab_cosine_vs_shipped_kdtree 1.000000000
 
 Optimized path (external VLFeat):
-BENCH matlab_original_at_image2densevlad noresize=0.364684 preresize=0.063133
-BENCH matlab_preprocess             noresize=0.011637 preresize=0.012724
-BENCH matlab_phow                   noresize=0.152402 preresize=0.029583
-BENCH matlab_rootsift               noresize=0.076290 preresize=0.006963
-BENCH matlab_computeVLAD            noresize=0.124355 preresize=0.013863
-BENCH matlab_cosine_vs_shipped_kdtree 0.996348112
+BENCH matlab_original_at_image2densevlad noresize=0.389161 preresize=0.071192
+BENCH matlab_preprocess             noresize=0.011878 preresize=0.012953
+BENCH matlab_phow                   noresize=0.150854 preresize=0.031373
+BENCH matlab_rootsift               noresize=0.077268 preresize=0.009444
+BENCH matlab_computeVLAD            noresize=0.149162 preresize=0.017421
+BENCH matlab_cosine_vs_shipped_kdtree 1.000000000
 ```
 
 Tokyo247 golden (10 images, max_dim=640, imdown=false), Apple Silicon, single
@@ -206,7 +229,7 @@ python -m pytest tests/test_torii15_stage_parity.py -q
 - Tests read MATLAB v7.3 dumps via `h5py` and use exact array equality.
 
 5) **Pre-PCA VLAD parity tests**
-- Compares Python DenseVLAD against the MATLAB dumps for example_gsv `_012_000`.
+- Compares Python DenseVLAD against shipped `example_gsv` `.dict_grid.dnsvlad.mat`.
 ```
 source .pixi/vlfeat_env.sh
 python -m pytest tests/test_torii15_pre_pca_vlad.py -q
@@ -221,7 +244,8 @@ python -m pytest tests/test_torii15_whitening.py -q
 ```
 
 7) **Shipped `.dict_grid.dnsvlad.mat` comparison (strict)**
-- Uses the shipped `example_gsv` vectors and compares them to MATLAB dumps.
+- Uses the shipped `example_gsv`/`example_grid` vectors as the source of truth
+  and compares Python output directly to those assets.
 ```
 python -m pytest tests/test_torii15_shipped_parity.py -q
 ```

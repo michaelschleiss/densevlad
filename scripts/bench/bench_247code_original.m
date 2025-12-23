@@ -54,7 +54,7 @@ for wi = 1:warmup
   img = vl_imdown(img);
   img_single = im2single(img);
   [f, desc] = vl_phow(img_single);
-  desc = relja_rootsift(single(desc));
+  desc = sqrt(bsxfun(@rdivide, single(desc), sum(abs(single(desc)), 1) + 1e-12));
   v = relja_computeVLAD(desc, CX, kdtree);
 end
 
@@ -82,7 +82,7 @@ for r = 1:reps
   acc_noresize_phow = acc_noresize_phow + t_phow;
 
   t0 = tic;
-  desc = relja_rootsift(single(desc));
+  desc = sqrt(bsxfun(@rdivide, single(desc), sum(abs(single(desc)), 1) + 1e-12));
   t_rootsift = toc(t0);
   acc_noresize_rootsift = acc_noresize_rootsift + t_rootsift;
 
@@ -118,7 +118,7 @@ for r = 1:reps
   acc_resize_phow = acc_resize_phow + t_phow;
 
   t0 = tic;
-  desc = relja_rootsift(single(desc));
+  desc = sqrt(bsxfun(@rdivide, single(desc), sum(abs(single(desc)), 1) + 1e-12));
   t_rootsift = toc(t0);
   acc_resize_rootsift = acc_resize_rootsift + t_rootsift;
 
