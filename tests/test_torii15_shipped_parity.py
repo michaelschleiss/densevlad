@@ -1,52 +1,34 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
 import numpy as np
 import pytest
 from scipy.io import loadmat
 
-from densevlad.torii15 import Torii15Assets
+from densevlad.torii15 import Torii15Assets, compute_densevlad_pre_pca, load_torii15_vocab
+from densevlad.torii15 import image as image_mod
 from tests._cosine import cosine_similarity
 
-# Requires MATLAB dumps in ./assets/torii15/matlab_dump (generated with MATLAB)
-# and shipped VLAD vectors under ./247code/data. Uses h5py (v7.3) and
-# scipy.io.loadmat (v5) readers.
+# Compares Python DenseVLAD output directly against shipped 247code assets.
 
 
-def _decode_matlab_str(arr: np.ndarray) -> str:
-    flat = np.asarray(arr).reshape(-1)
-    if flat.dtype.kind in {"u", "i"}:
-        return "".join(chr(int(c)) for c in flat if int(c) != 0)
-    if flat.dtype.kind == "S":
-        return b"".join(flat.tolist()).decode("utf-8", errors="ignore")
-    if flat.dtype.kind == "U":
-        return "".join(flat.tolist())
-    return str(flat)
-
-
-def _load_matlab_vlad(mat_path: Path, key: str) -> tuple[np.ndarray, str]:
-    try:
-        import h5py  # type: ignore[import-not-found]
-    except Exception as exc:
-        pytest.fail(f"h5py required to read MATLAB v7.3 dumps: {exc}", pytrace=False)
-    with h5py.File(mat_path, "r") as mat:
-        vlad_key = key
-        imfn_key = "imfn" if key in ("vlad", "v") else "imfn_030"
-        if vlad_key not in mat or imfn_key not in mat:
-            raise KeyError(f"Expected {vlad_key}/{imfn_key} in {mat_path}")
-        vlad = np.array(mat[vlad_key], dtype=np.float32).reshape(-1)
-        imfn = _decode_matlab_str(np.array(mat[imfn_key]))
-    return vlad, imfn
+_VLFEAT_SETUP_HINT = (
+    "Setup (linux/pixi example):\n"
+    "  pixi install -e dev\n"
+    "  pixi run build-vlfeat-linux\n"
+    "  pixi run install-cyvlfeat-linux\n"
+    "  pixi run install-densevlad-linux\n"
+    "  source .pixi/vlfeat_env_linux.sh"
+)
 
 
 def _load_shipped_vlad(mat_path: Path) -> np.ndarray:
     mat = loadmat(mat_path)
-    if "vlad" in mat:
-        vlad = np.asarray(mat["vlad"], dtype=np.float32).reshape(-1)
-    else:
+    if "vlad" not in mat:
         raise KeyError(f"Expected vlad in {mat_path}")
-    return vlad
+    return np.asarray(mat["vlad"], dtype=np.float32).reshape(-1)
 
 
 def _diff_metrics(a: np.ndarray, b: np.ndarray) -> str:
@@ -63,77 +45,92 @@ def _diff_metrics(a: np.ndarray, b: np.ndarray) -> str:
     )
 
 
-def _shipped_vlad_paths() -> list[Path]:
-    return sorted(Path("247code/data/example_gsv").rglob("*.dict_grid.dnsvlad.mat"))
-
-
-def test_shipped_vlad_matches_matlab_dumps_strict():
-    min_cos = 0.999
-    assets_dir = Torii15Assets.default_cache_dir()
-    dump_intermediate = assets_dir / "matlab_dump" / "densevlad_dump_intermediate.mat"
-    dump_blackbox = assets_dir / "matlab_dump" / "densevlad_dump_blackbox.mat"
-    missing = [p for p in (dump_intermediate, dump_blackbox) if not p.exists()]
-    if missing:
+def _require_cyvlfeat():
+    try:
+        import cyvlfeat  # noqa: F401
+    except Exception:
         pytest.fail(
-            "Missing MATLAB dumps; generate them with MATLAB via "
-            "dump_densevlad_intermediate and dump_densevlad_all_blackbox",
+            "SETUP REQUIRED: cyvlfeat is required for DenseVLAD parity tests.\n"
+            "Build/install it (after VLFeat) and rerun.\n"
+            f"{_VLFEAT_SETUP_HINT}",
             pytrace=False,
         )
 
-    vlad_intermediate, imfn_intermediate = _load_matlab_vlad(dump_intermediate, "vlad")
-    vlad_intermediate_030, imfn_intermediate_030 = _load_matlab_vlad(
-        dump_intermediate, "vlad_030"
-    )
-    vlad_blackbox, imfn_blackbox = _load_matlab_vlad(dump_blackbox, "vlad")
-    vlad_blackbox_030, imfn_blackbox_030 = _load_matlab_vlad(
-        dump_blackbox, "vlad_030"
-    )
-    im_gsv = Path(imfn_intermediate).name
-    im_gsv_030 = Path(imfn_intermediate_030).name
 
+def _require_libvl():
+    if image_mod._LIBVL is None:
+        pytest.fail(
+            "SETUP REQUIRED: VLFeat libvl (kdforest) is required for parity.\n"
+            "Ensure libvl is built and discoverable.\n"
+            f"{_VLFEAT_SETUP_HINT}",
+            pytrace=False,
+        )
+
+
+def _shipped_vlad_paths() -> list[Path]:
+    roots = [Path("247code/data/example_gsv"), Path("247code/data/example_grid")]
+    mats: list[Path] = []
+    for root in roots:
+        if root.is_dir():
+            mats.extend(sorted(root.rglob("*.dict_grid.dnsvlad.mat")))
+    return sorted(mats)
+
+
+def _resolve_image_and_masks(mat_path: Path) -> tuple[Path, Path | None, Path | None]:
+    image_name = mat_path.name.replace(".dict_grid.dnsvlad.mat", ".jpg")
+    if "example_grid" in mat_path.parts:
+        root = Path("247code/data/example_grid")
+        label = root / image_name.replace(".jpg", ".label.mat")
+        plane = root / "planes.txt"
+        return root / image_name, label, plane
+    root = Path("247code/data/example_gsv")
+    return root / image_name, None, None
+
+
+def test_shipped_vlad_matches_python_strict():
+    image_mod.set_simd_enabled(False)
+    _require_cyvlfeat()
+    _require_libvl()
+    min_cos = 0.999
     shipped = _shipped_vlad_paths()
     if not shipped:
         pytest.fail("No shipped .dict_grid.dnsvlad.mat files found under 247code/data", pytrace=False)
 
+    assets = Torii15Assets.default()
+    vocab = load_torii15_vocab(assets.vocab_mat_path())
+    orig_assign = os.environ.get("DVLAD_ASSIGN_METHOD")
+    os.environ["DVLAD_ASSIGN_METHOD"] = "kdtree"
+
     errors = []
-    if imfn_intermediate != imfn_blackbox or imfn_intermediate_030 != imfn_blackbox_030:
-        errors.append(
-            "MATLAB dumps disagree on input image paths: "
-            f"intermediate={imfn_intermediate},{imfn_intermediate_030} "
-            f"blackbox={imfn_blackbox},{imfn_blackbox_030}"
-        )
-    if cosine_similarity(vlad_intermediate, vlad_blackbox) < min_cos:
-        metrics = _diff_metrics(vlad_intermediate, vlad_blackbox)
-        errors.append(f"Intermediate vs blackbox mismatch (gsv): {metrics}")
-    if cosine_similarity(vlad_intermediate_030, vlad_blackbox_030) < min_cos:
-        metrics = _diff_metrics(vlad_intermediate_030, vlad_blackbox_030)
-        errors.append(f"Intermediate vs blackbox mismatch (gsv_030): {metrics}")
-
-    for mat_path in shipped:
-        shipped_vlad = _load_shipped_vlad(mat_path)
-        image_name = mat_path.name.replace(".dict_grid.dnsvlad.mat", ".jpg")
-        if "example_gsv" in mat_path.parts:
-            if image_name == im_gsv:
-                ref_intermediate = vlad_intermediate
-                ref_blackbox = vlad_blackbox
-            elif image_name == im_gsv_030:
-                ref_intermediate = vlad_intermediate_030
-                ref_blackbox = vlad_blackbox_030
-            else:
-                errors.append(
-                    f"No MATLAB dump for shipped GSV image {image_name}; "
-                    f"MATLAB dumps are for {im_gsv} and {im_gsv_030}."
-                )
+    try:
+        for mat_path in shipped:
+            shipped_vlad = _load_shipped_vlad(mat_path)
+            image_path, label_path, plane_path = _resolve_image_and_masks(mat_path)
+            if not image_path.is_file():
+                errors.append(f"Missing image for shipped vlad: {image_path}")
                 continue
-        else:
-            errors.append(f"Unknown shipped vlad location: {mat_path}")
-            continue
+            if label_path is not None and not label_path.is_file():
+                errors.append(f"Missing label for shipped vlad: {label_path}")
+                continue
+            if plane_path is not None and not plane_path.is_file():
+                errors.append(f"Missing plane file for shipped vlad: {plane_path}")
+                continue
 
-        if cosine_similarity(shipped_vlad, ref_intermediate) < min_cos:
-            metrics = _diff_metrics(shipped_vlad, ref_intermediate)
-            errors.append(f"Shipped vs intermediate mismatch for {mat_path}: {metrics}")
-        if cosine_similarity(shipped_vlad, ref_blackbox) < min_cos:
-            metrics = _diff_metrics(shipped_vlad, ref_blackbox)
-            errors.append(f"Shipped vs blackbox mismatch for {mat_path}: {metrics}")
+            vlad = compute_densevlad_pre_pca(
+                image_path,
+                vocab,
+                label_path=label_path,
+                plane_path=plane_path,
+                max_dim=None,
+                apply_imdown=True,
+            )
+            if cosine_similarity(shipped_vlad, vlad) < min_cos:
+                metrics = _diff_metrics(shipped_vlad, vlad)
+                errors.append(f"Shipped vs Python mismatch for {mat_path}: {metrics}")
+    finally:
+        if orig_assign is None:
+            os.environ.pop("DVLAD_ASSIGN_METHOD", None)
+        else:
+            os.environ["DVLAD_ASSIGN_METHOD"] = orig_assign
 
     assert not errors, "\n".join(errors)
